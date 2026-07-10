@@ -48,16 +48,32 @@ function matrixModuleCache() {
   return window[MATRIX_MODULE_CACHE_KEY];
 }
 
+function defaultPackageUrl() {
+  return `${siteConfig.baseUrl}${DEFAULT_RUNTIME_PATH}`;
+}
+
 function importMatrixModule(url) {
   const cache = matrixModuleCache();
   if (!cache.has(url)) {
     const externalImport = new Function("url", "return import(url)");
-    cache.set(url, externalImport(url));
+    const promise = externalImport(url).catch((error) => {
+      cache.delete(url);
+      throw error;
+    });
+    cache.set(url, promise);
   }
   return cache.get(url);
 }
 
+function preloadMatrixModule(url = defaultPackageUrl()) {
+  return importMatrixModule(url);
+}
+
 if (typeof window !== "undefined" && typeof HTMLElement !== "undefined" && !window.customElements.get("wasmatrix-sandbox")) {
+preloadMatrixModule().catch(() => {
+  // The sandbox will surface the concrete loading error when the user runs code.
+});
+
 class WasmatrixSandbox extends HTMLElement {
   static observedAttributes = ["code", "package-url"];
 
@@ -103,10 +119,14 @@ class WasmatrixSandbox extends HTMLElement {
   #packageUrl() {
     const override = this.getAttribute("package-url");
     if (override != null && override.trim() !== "") return override;
-    return `${siteConfig.baseUrl}${DEFAULT_RUNTIME_PATH}`;
+    return defaultPackageUrl();
   }
 
   #render() {
+    preloadMatrixModule(this.#packageUrl()).catch(() => {
+      // Keep failed preloads quiet until an explicit sandbox run can report them.
+    });
+
     this.shadowRoot.innerHTML = `
       <style>
         :host {

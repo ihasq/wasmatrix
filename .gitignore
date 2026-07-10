@@ -4,3 +4,6 @@ dist/
 *.log
 coverage/
 docs/i18n/
+docs/.docusaurus/
+docs/build/
+docs/static/wasmatrix-runtime/

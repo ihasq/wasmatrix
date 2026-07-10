@@ -4,7 +4,7 @@
     "module": "ES2022",
     "moduleResolution": "Bundler",
     "lib": ["ESNext", "DOM"],
-    "rootDir": "src",
+    "rootDir": "build/generated",
     "outDir": "dist",
     "allowJs": false,
     "checkJs": false,
@@ -16,6 +16,6 @@
     "skipLibCheck": true,
     "useDefineForClassFields": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/wasmatrix.ts", "build", "docs", "node_modules", "test"]
+  "include": ["build/generated/**/*.ts"],
+  "exclude": ["docs", "node_modules", "test"]
 }

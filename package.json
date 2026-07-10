@@ -27,18 +27,22 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    }
+    },
+    "./wasmatrix.wit": "./dist/wasmatrix.wit"
   },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
-    "build": "npm run build:wasm && npm run build:ts && npm run build:dist",
+    "generate": "npm run generate:wit && npm run generate:adapter",
+    "generate:wit": "node scripts/generate-component-wit.mjs",
+    "generate:adapter": "node scripts/generate-js-adapter.mjs",
+    "build": "npm run generate:wit && npm run build:wasm && npm run build:ts && npm run build:dist",
     "build:wasm": "asc --config asconfig.json --target release",
-    "build:ts": "tsc -p tsconfig.json",
+    "build:ts": "npm run generate:adapter && tsc -p tsconfig.json",
     "build:dist": "node scripts/prepare-dist.mjs build/wasmatrix.wasm",
-    "build:debug": "asc --config asconfig.json --target debug && npm run build:ts && node scripts/prepare-dist.mjs build/wasmatrix.debug.wasm",
+    "build:debug": "npm run generate && asc --config asconfig.json --target debug && npm run build:ts && node scripts/prepare-dist.mjs build/wasmatrix.debug.wasm",
     "docs:dev": "npm --prefix docs run start -- --host 127.0.0.1",
     "test": "npm run build && node --test test/*.test.mjs",
     "coverage": "npm run build && c8 --reporter=text --reporter=lcov node --test test/*.test.mjs",
