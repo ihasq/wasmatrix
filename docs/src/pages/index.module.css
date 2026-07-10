@@ -23,62 +23,75 @@
   background:
     radial-gradient(circle at 78% 12%, rgba(34, 211, 238, 0.24), transparent 29rem),
     radial-gradient(circle at 62% 88%, rgba(59, 130, 246, 0.12), transparent 24rem);
-  inset: -44% -34%;
+  inset: -18% -12%;
   opacity: 0.98;
   overflow: hidden;
   pointer-events: none;
   position: absolute;
+  perspective: 1040px;
+  perspective-origin: 58% 50%;
   z-index: 0;
 }
 
-.matrixScene::before {
-  background-image:
-    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
-  background-size: 44px 44px;
+.matrixScene::after {
+  -webkit-backdrop-filter: blur(2.4px);
+  backdrop-filter: blur(2.4px);
+  background:
+    linear-gradient(115deg, rgba(8, 18, 34, 0.08), rgba(8, 18, 34, 0.02));
   content: "";
   inset: 0;
-  mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 100%);
+  -webkit-mask-image:
+    linear-gradient(115deg, transparent 0%, transparent 56%, rgba(0, 0, 0, 0.48) 78%, #000 100%);
+  mask-image:
+    linear-gradient(115deg, transparent 0%, transparent 56%, rgba(0, 0, 0, 0.48) 78%, #000 100%);
+  pointer-events: none;
   position: absolute;
+  z-index: 1;
 }
 
-.matrixLayer {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(var(--matrix-columns), minmax(2rem, 1fr));
-  inset: -30% -18%;
+.matrixSvg {
+  display: block;
+  height: 266%;
+  left: -47.6%;
+  overflow: visible;
   position: absolute;
-  transform-origin: center;
-  will-change: transform;
+  top: -67.2%;
+  transform:
+    rotateX(48deg)
+    rotateZ(-13deg)
+    scale3d(0.714, 0.714, 1);
+  transform-origin: 54% 48%;
+  width: 235.2%;
+  z-index: 0;
 }
 
-.matrixLayerPrimary {
-  animation: matrixDriftPrimary 42s linear infinite alternate;
-  opacity: 0.82;
+.matrixTileBase {
+  fill: rgba(8, 18, 34, 0.86);
 }
 
-.matrixLayer span {
-  align-items: center;
-  aspect-ratio: 1;
-  background:
-    linear-gradient(180deg, rgba(14, 165, 233, 0.24), rgba(14, 165, 233, 0.07)),
-    rgba(15, 23, 42, 0.5);
-  border: 1px solid rgba(125, 211, 252, 0.36);
-  border-radius: 6px;
-  box-shadow:
-    0 0 0 1px rgba(15, 23, 42, 0.24),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-  color: rgba(226, 242, 255, 0.98);
-  display: flex;
-  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    monospace;
-  font-size: clamp(0.58rem, 1.1vw, 0.95rem);
+.matrixGridLine {
+  shape-rendering: geometricPrecision;
+  stroke: rgba(125, 211, 252, 0.16);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.matrixNumber {
+  fill: rgba(219, 234, 254, 0.6);
+  font-family: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: 23px;
   font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  justify-content: center;
-  line-height: 1;
-  min-width: 0;
-  text-shadow: none;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-rendering: geometricPrecision;
+}
+
+.matrixNumberStrong {
+  fill: rgba(147, 197, 253, 0.78);
+}
+
+.matrixFill {
+  opacity: 0.96;
 }
 
 .heroInner {
@@ -243,25 +256,4 @@
     grid-template-columns: 1fr;
   }
 
-  .matrixLayer {
-    gap: 6px;
-    grid-template-columns: repeat(var(--matrix-columns), minmax(1.75rem, 1fr));
-    inset: -40% -72%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .matrixLayerPrimary {
-    animation: none;
-  }
-}
-
-@keyframes matrixDriftPrimary {
-  from {
-    transform: translate3d(-4%, -3%, 0) rotate(-8deg);
-  }
-
-  to {
-    transform: translate3d(4%, 3%, 0) rotate(-8deg);
-  }
 }

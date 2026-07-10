@@ -2,97 +2,182 @@ import Link from "@docusaurus/Link";
 import Layout from "@theme/Layout";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import clsx from "clsx";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import siteContent from "../i18n/siteContent.cjs";
 import styles from "./index.module.css";
 
 const { getContentForLocale, homeContent } = siteContent;
 
-const MATRIX_COLUMNS = 32;
-const MATRIX_ROWS = 22;
-const MATRIX_CELL_COUNT = MATRIX_COLUMNS * MATRIX_ROWS;
-const MATRIX_LAYER_SALTS = [3];
-const MATRIX_TOTAL_CELLS = MATRIX_CELL_COUNT * MATRIX_LAYER_SALTS.length;
-const MATRIX_FRAME_UPDATE_COUNT = Math.ceil(MATRIX_TOTAL_CELLS / 3);
+const MATRIX_TILE_COLUMNS = 16;
+const MATRIX_TILE_ROWS = 16;
+const MATRIX_CELL_WIDTH = 86;
+const MATRIX_CELL_HEIGHT = 52;
+const MATRIX_TILE_WIDTH = MATRIX_TILE_COLUMNS * MATRIX_CELL_WIDTH;
+const MATRIX_TILE_HEIGHT = MATRIX_TILE_ROWS * MATRIX_CELL_HEIGHT;
+const MATRIX_CELL_COUNT = MATRIX_TILE_COLUMNS * MATRIX_TILE_ROWS;
+const MATRIX_FRAME_UPDATE_COUNT = Math.ceil(MATRIX_CELL_COUNT / 3);
+const MATRIX_VALUE_SPAN = 257;
+const MATRIX_VALUE_OFFSET = 128;
+const MATRIX_CELLS = Array.from({ length: MATRIX_CELL_COUNT }, (_, index) => {
+  const column = index % MATRIX_TILE_COLUMNS;
+  const row = Math.floor(index / MATRIX_TILE_COLUMNS);
 
-function matrixValue(index, tick, salt) {
-  const mixed = (index * 73 + tick * 37 + salt * 131 + ((index + tick + salt) % 11) * 19) % 199;
-  return mixed - 99;
-}
+  return {
+    index,
+    x: column * MATRIX_CELL_WIDTH + MATRIX_CELL_WIDTH / 2,
+    y: row * MATRIX_CELL_HEIGHT + MATRIX_CELL_HEIGHT * 0.66,
+    value: matrixInteger(index + 1),
+    strong: (index + row) % 9 === 0
+  };
+});
+const MATRIX_VERTICAL_LINES = Array.from(
+  { length: MATRIX_TILE_COLUMNS + 1 },
+  (_, index) => index * MATRIX_CELL_WIDTH
+);
+const MATRIX_HORIZONTAL_LINES = Array.from(
+  { length: MATRIX_TILE_ROWS + 1 },
+  (_, index) => index * MATRIX_CELL_HEIGHT
+);
 
-function randomMatrixValue(previous) {
-  let next = Math.floor(Math.random() * 199) - 99;
-  if (next === previous) next = next === 99 ? -99 : next + 1;
-  return next;
-}
-
-function initialMatrixValues() {
-  return Array.from({ length: MATRIX_TOTAL_CELLS }, (_, globalIndex) => {
-    const layerIndex = Math.floor(globalIndex / MATRIX_CELL_COUNT);
-    const cellIndex = globalIndex % MATRIX_CELL_COUNT;
-    return matrixValue(cellIndex, layerIndex * 17, MATRIX_LAYER_SALTS[layerIndex]);
-  });
+function matrixInteger(seed) {
+  let value = Math.imul(seed ^ 0x85ebca6b, 0xc2b2ae35) >>> 0;
+  value = (value ^ (value >>> 15)) >>> 0;
+  return String((value % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
 }
 
 function MatrixProcessingBackdrop() {
-  const initialValues = useMemo(() => initialMatrixValues(), []);
-  const valuesRef = useRef(initialValues);
-  const cellsRef = useRef([]);
-  const cellIndexes = useMemo(
-    () => Array.from({ length: MATRIX_CELL_COUNT }, (_, index) => index),
-    []
-  );
+  const patternRef = useRef(null);
+  const valueRefs = useRef([]);
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    if (reducedMotion?.matches) return undefined;
+    const pattern = patternRef.current;
+    if (pattern == null) {
+      return undefined;
+    }
+
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    if (reducedMotion) {
+      return undefined;
+    }
 
     let frameId = 0;
-    const animate = () => {
-      const updated = new Set();
-
-      while (updated.size < MATRIX_FRAME_UPDATE_COUNT) {
-        updated.add(Math.floor(Math.random() * MATRIX_TOTAL_CELLS));
+    let randomState = 0x6d2b79f5;
+    const nextRandom = () => {
+      randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
+      return randomState;
+    };
+    const nextInteger = () => String((nextRandom() % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
+    const nextIntegerExcept = (previous) => {
+      let next = nextInteger();
+      if (next === previous) {
+        next = String(((Number(next) + MATRIX_VALUE_OFFSET + 1) % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
       }
-
-      for (const globalIndex of updated) {
-        const nextValue = randomMatrixValue(valuesRef.current[globalIndex]);
-        valuesRef.current[globalIndex] = nextValue;
-        const cell = cellsRef.current[globalIndex];
-        if (cell != null) cell.textContent = String(nextValue);
+      return next;
+    };
+    const updateOrder = Array.from({ length: MATRIX_CELL_COUNT }, (_, index) => index);
+    const shuffleUpdateOrder = () => {
+      for (let index = updateOrder.length - 1; index > 0; index -= 1) {
+        const swapIndex = nextRandom() % (index + 1);
+        [updateOrder[index], updateOrder[swapIndex]] = [updateOrder[swapIndex], updateOrder[index]];
       }
-
+    };
+    let updateCursor = MATRIX_CELL_COUNT;
+    const updateValues = () => {
+      for (let offset = 0; offset < MATRIX_FRAME_UPDATE_COUNT; offset += 1) {
+        if (updateCursor >= MATRIX_CELL_COUNT) {
+          shuffleUpdateOrder();
+          updateCursor = 0;
+        }
+        const index = updateOrder[updateCursor];
+        updateCursor += 1;
+        const node = valueRefs.current[index];
+        if (node != null) {
+          node.textContent = nextIntegerExcept(node.textContent);
+        }
+      }
+    };
+    const animate = (timestamp) => {
+      const phase = (timestamp * 0.032) % MATRIX_TILE_WIDTH;
+      pattern.setAttribute("patternTransform", `translate(${-phase} ${phase * 0.42})`);
+      updateValues();
       frameId = window.requestAnimationFrame(animate);
     };
 
     frameId = window.requestAnimationFrame(animate);
 
-    return () => window.cancelAnimationFrame(frameId);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
   }, []);
 
   return (
     <div className={styles.matrixScene} aria-hidden="true">
-      {MATRIX_LAYER_SALTS.map((salt, layerIndex) => (
-        <div
-          className={clsx(styles.matrixLayer, styles.matrixLayerPrimary)}
-          key={salt}
-          style={{ "--matrix-columns": String(MATRIX_COLUMNS) }}
-        >
-          {cellIndexes.map((index) => {
-            const globalIndex = layerIndex * MATRIX_CELL_COUNT + index;
-            return (
-              <span
-                key={index}
+      <svg
+        className={styles.matrixSvg}
+        viewBox="0 0 1920 1080"
+        preserveAspectRatio="xMidYMid slice"
+      >
+        <defs>
+          <pattern
+            id="matrix-processing-tile"
+            ref={patternRef}
+            width={MATRIX_TILE_WIDTH}
+            height={MATRIX_TILE_HEIGHT}
+            patternUnits="userSpaceOnUse"
+          >
+            <rect
+              className={styles.matrixTileBase}
+              width={MATRIX_TILE_WIDTH}
+              height={MATRIX_TILE_HEIGHT}
+            />
+            {MATRIX_VERTICAL_LINES.map((x) => (
+              <line
+                className={styles.matrixGridLine}
+                key={`v-${x}`}
+                x1={x}
+                x2={x}
+                y1="0"
+                y2={MATRIX_TILE_HEIGHT}
+              />
+            ))}
+            {MATRIX_HORIZONTAL_LINES.map((y) => (
+              <line
+                className={styles.matrixGridLine}
+                key={`h-${y}`}
+                x1="0"
+                x2={MATRIX_TILE_WIDTH}
+                y1={y}
+                y2={y}
+              />
+            ))}
+            {MATRIX_CELLS.map((cell) => (
+              <text
+                className={clsx(
+                  styles.matrixNumber,
+                  cell.strong && styles.matrixNumberStrong
+                )}
+                key={cell.index}
                 ref={(node) => {
-                  cellsRef.current[globalIndex] = node;
+                  valueRefs.current[cell.index] = node;
                 }}
+                x={cell.x}
+                y={cell.y}
+                textAnchor="middle"
               >
-                {initialValues[globalIndex]}
-              </span>
-            );
-          })}
-        </div>
-      ))}
+                {cell.value}
+              </text>
+            ))}
+          </pattern>
+        </defs>
+        <rect
+          className={styles.matrixFill}
+          x="-50%"
+          y="-50%"
+          width="200%"
+          height="200%"
+          fill="url(#matrix-processing-tile)"
+        />
+      </svg>
     </div>
   );
 }
