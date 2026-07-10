@@ -35,30 +35,28 @@
     "README.md"
   ],
   "scripts": {
-    "generate": "npm run generate:wit && npm run generate:adapter",
-    "generate:wit": "node scripts/generate-component-wit.mjs",
-    "generate:adapter": "node scripts/generate-js-adapter.mjs",
-    "build": "npm run generate:wit && npm run build:wasm && npm run build:ts && npm run build:dist",
-    "build:wasm": "asc --config asconfig.json --target release",
-    "build:ts": "npm run generate:adapter && tsc -p tsconfig.json",
-    "build:dist": "node scripts/prepare-dist.mjs build/wasmatrix.wasm",
-    "build:debug": "npm run generate && asc --config asconfig.json --target debug && npm run build:ts && node scripts/prepare-dist.mjs build/wasmatrix.debug.wasm",
-    "docs:dev": "npm --prefix docs run start -- --host 127.0.0.1",
-    "test": "npm run build && node --test test/*.test.mjs",
-    "coverage": "npm run build && c8 --reporter=text --reporter=lcov node --test test/*.test.mjs",
-    "coverage:codecov": "npm run coverage && node scripts/prepare-codecov-lcov.mjs",
-    "test:e2e": "npm run build && node --test test/e2e-transparency.test.mjs test/e2e-benchmark.mjs",
-    "test:e2e:transparency": "npm run build && node --test test/e2e-transparency.test.mjs",
-    "test:e2e:benchmark": "npm run build && node --test test/e2e-benchmark.mjs",
-    "benchmark": "npm run test:e2e:benchmark"
+    "generate": "deno task generate",
+    "generate:wit": "deno task generate:wit",
+    "generate:adapter": "deno task generate:adapter",
+    "build": "deno task build",
+    "build:wasm": "deno task build:wasm",
+    "build:ts": "deno task build:ts",
+    "build:dist": "deno task build:dist",
+    "build:debug": "deno task build:debug",
+    "docs:dev": "deno task docs:dev",
+    "docs:build": "deno task docs:build",
+    "docs:serve": "deno task docs:serve",
+    "test": "deno task test",
+    "coverage": "deno task coverage",
+    "coverage:codecov": "deno task coverage:codecov",
+    "test:e2e": "deno task test:e2e",
+    "test:e2e:transparency": "deno task test:e2e:transparency",
+    "test:e2e:benchmark": "deno task test:e2e:benchmark",
+    "benchmark": "deno task benchmark",
+    "fmt": "deno task fmt",
+    "lint": "deno task lint"
   },
   "engines": {
     "node": ">=18"
-  },
-  "devDependencies": {
-    "@types/node": "^22.20.1",
-    "assemblyscript": "^0.28.19",
-    "c8": "^11.0.0",
-    "typescript": "^5.8.3"
   }
 }

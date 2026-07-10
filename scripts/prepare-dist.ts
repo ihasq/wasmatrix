@@ -1,7 +1,7 @@
 import { copyFile, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const wasmInput = process.argv[2] ?? "build/wasmatrix.wasm";
+const wasmInput = Deno.args[0] ?? "build/wasmatrix.wasm";
 
 await mkdir("dist", { recursive: true });
 await copyFile(resolve(wasmInput), "dist/wasmatrix.wasm");

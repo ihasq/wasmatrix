@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "strict": false
+  },
+  "imports": {
+    "@jridgewell/trace-mapping": "npm:@jridgewell/trace-mapping@0.3.31"
+  },
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "generate": "deno task generate:wit && deno task generate:adapter",
+    "generate:wit": "deno run -A scripts/generate-component-wit.ts",
+    "generate:adapter": "deno run -A scripts/generate-js-adapter.ts",
+    "build": "deno task generate:wit && deno task build:wasm && deno task build:ts && deno task build:dist",
+    "build:wasm": "deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.json --target release",
+    "build:ts": "deno task generate:adapter && deno run -A npm:typescript@5.9.3/lib/tsc.js -p tsconfig.json",
+    "build:dist": "deno run -A scripts/prepare-dist.ts build/wasmatrix.wasm",
+    "build:debug": "deno task generate && deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.json --target debug && deno task build:ts && deno run -A scripts/prepare-dist.ts build/wasmatrix.debug.wasm",
+    "test": "deno task build && deno test -A test/*.test.mjs",
+    "coverage": "deno task build && deno run -A scripts/run-coverage.ts",
+    "coverage:codecov": "deno task coverage && deno run -A scripts/prepare-codecov-lcov.ts",
+    "test:e2e": "deno task build && deno test -A test/e2e-transparency.test.mjs test/e2e-benchmark.mjs",
+    "test:e2e:transparency": "deno task build && deno test -A test/e2e-transparency.test.mjs",
+    "test:e2e:benchmark": "deno task build && deno test -A test/e2e-benchmark.mjs",
+    "benchmark": "deno task test:e2e:benchmark",
+    "docs:dev": "cd docs && deno task start",
+    "docs:build": "cd docs && deno task build",
+    "docs:serve": "cd docs && deno task serve",
+    "fmt": "deno fmt",
+    "lint": "deno lint scripts/*.ts docs/scripts/*.ts"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "strict": false
+  },
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "generate:i18n": "deno run -A scripts/generate-localized-docs.ts",
+    "generate:api": "deno run -A scripts/generate-api-guide.ts",
+    "prepare:runtime": "deno run -A scripts/prepare-runtime.ts",
+    "prepare": "deno task generate:i18n && deno task generate:api && deno task prepare:runtime",
+    "start": "deno task prepare && deno run -A npm:@docusaurus/core@3.10.1/docusaurus start --host 127.0.0.1",
+    "build": "deno task prepare && deno run -A npm:@docusaurus/core@3.10.1/docusaurus build",
+    "serve": "deno run -A npm:@docusaurus/core@3.10.1/docusaurus serve",
+    "clear": "deno run -A npm:@docusaurus/core@3.10.1/docusaurus clear",
+    "capture:social-card": "deno run -A scripts/capture-social-card.ts"
+  }
+}

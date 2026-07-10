@@ -3,15 +3,19 @@
 [![npm](https://img.shields.io/npm/v/wasmatrix.svg)](https://www.npmjs.com/package/wasmatrix)
 [![codecov](https://codecov.io/gh/ihasq/wasmatrix/branch/main/graph/badge.svg)](https://codecov.io/gh/ihasq/wasmatrix)
 
-Fast matrix operations for JavaScript runtimes, powered by AssemblyScript and WebAssembly SIMD.
+Fast matrix operations for JavaScript runtimes, powered by AssemblyScript and
+WebAssembly SIMD.
 
-WASMatrix gives you a small TypeScript API on top of a row-major `Float32` WASM core. It is built for projects that want real linear algebra without turning every operation into a JavaScript heap round trip.
+WASMatrix gives you a small TypeScript API on top of a row-major `Float32` WASM
+core. It is built for projects that want real linear algebra without turning
+every operation into a JavaScript heap round trip.
 
 - WebAssembly SIMD is required.
 - Browser, Node, Deno, and Bun are first-class targets.
 - The npm package ships ESM JavaScript and WASM as separate files.
 - Matrix buffers stay in WASM memory until you explicitly read them back.
-- Lazy views, expression fusion, factorization caches, and structural shortcuts are enabled by default where they preserve normal semantics.
+- Lazy views, expression fusion, factorization caches, and structural shortcuts
+  are enabled by default where they preserve normal semantics.
 
 Repository: [github.com/ihasq/wasmatrix](https://github.com/ihasq/wasmatrix)
 
@@ -21,7 +25,8 @@ Repository: [github.com/ihasq/wasmatrix](https://github.com/ihasq/wasmatrix)
 npm install wasmatrix
 ```
 
-WASMatrix is ESM-only. The published entrypoint uses top-level await to instantiate the adjacent WASM asset before exports are available:
+WASMatrix is ESM-only. The published entrypoint uses top-level await to
+instantiate the adjacent WASM asset before exports are available:
 
 ```js
 import Matrix from "wasmatrix";
@@ -44,12 +49,15 @@ The package publishes:
 `dist/index.js` loads the WASM file with:
 
 ```js
-new URL("./wasmatrix.wasm", import.meta.url)
+new URL("./wasmatrix.wasm", import.meta.url);
 ```
 
-That shape is intentional. npm installs keep JavaScript and WASM as separate files, while CDNs and bundlers such as esm.sh can rewrite, host, or inline the WASM asset using their own pipeline.
+That shape is intentional. npm installs keep JavaScript and WASM as separate
+files, while CDNs and bundlers such as esm.sh can rewrite, host, or inline the
+WASM asset using their own pipeline.
 
-Node local `file:` imports are handled internally. Browser, Deno, Bun, and CDN usage follow the normal fetchable asset path.
+Node local `file:` imports are handled internally. Browser, Deno, Bun, and CDN
+usage follow the normal fetchable asset path.
 
 ## Quick Tour
 
@@ -60,12 +68,16 @@ console.log(isSimdSupported()); // true when the loaded WASM validates
 
 configure({
   fastMath: false,
-  cacheLimitBytes: 64 * 1024 * 1024
+  cacheLimitBytes: 64 * 1024 * 1024,
 });
 
 const a = Matrix.from(2, 3, [
-  1, 2, 3,
-  4, 5, 6
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
 ]);
 
 const row = Matrix.from(1, 3, [10, 20, 30]);
@@ -74,7 +86,9 @@ const b = a.add(row).scale(0.5).sqrt();
 console.log(b.toArray()); // explicit readback from WASM memory
 ```
 
-Most operations return another `Matrix`. The data stays in WASM memory until you ask for `data`, `toFloat32Array()`, `toFlatArray()`, `toArray()`, `row()`, `column()`, or `diagonal()`.
+Most operations return another `Matrix`. The data stays in WASM memory until you
+ask for `data`, `toFloat32Array()`, `toFlatArray()`, `toArray()`, `row()`,
+`column()`, or `diagonal()`.
 
 ## API At A Glance
 
@@ -171,9 +185,13 @@ const x = A.solve(B);
 const inv = A.inverse();
 ```
 
-The same matrix can reuse LU, Cholesky, QR, transpose, packed GEMM operands, reductions, and materialized expression results as long as its version has not changed.
+The same matrix can reuse LU, Cholesky, QR, transpose, packed GEMM operands,
+reductions, and materialized expression results as long as its version has not
+changed.
 
-Some algebraic rewrites can change floating-point edge cases around `NaN`, `Infinity`, `-0`, or rounding. These remain conservative by default. More aggressive identity folding can be enabled explicitly:
+Some algebraic rewrites can change floating-point edge cases around `NaN`,
+`Infinity`, `-0`, or rounding. These remain conservative by default. More
+aggressive identity folding can be enabled explicitly:
 
 ```js
 configure({ fastMath: true });
@@ -181,14 +199,17 @@ configure({ fastMath: true });
 
 ## Memory Model
 
-`Matrix` instances own WASM-side buffers. A JavaScript typed array is created only when you read data back.
+`Matrix` instances own WASM-side buffers. A JavaScript typed array is created
+only when you read data back.
 
 ```js
 const result = A.matmul(B).add(C).sqrt(); // stays in WASM/lazy form
-const values = result.toFloat32Array();   // snapshot copied to JS
+const values = result.toFloat32Array(); // snapshot copied to JS
 ```
 
-Use `dispose()` when you know a matrix is no longer needed, especially in long-running pipelines. FinalizationRegistry is used when available, but explicit disposal gives tighter control over WASM heap pressure.
+Use `dispose()` when you know a matrix is no longer needed, especially in
+long-running pipelines. FinalizationRegistry is used when available, but
+explicit disposal gives tighter control over WASM heap pressure.
 
 ## Platform Notes
 
@@ -198,27 +219,42 @@ WASMatrix needs:
 - top-level await
 - WebAssembly SIMD
 
-Modern SIMD-capable browsers satisfy these requirements. Node support follows the package `engines` field. Deno and Bun work through the same ESM + WASM asset path.
+Modern SIMD-capable browsers satisfy these requirements. Node support follows
+the package `engines` field. Deno and Bun work through the same ESM + WASM asset
+path.
 
-When bundling, make sure your tool treats `new URL("./wasmatrix.wasm", import.meta.url)` as an asset reference. This is the format expected by modern bundlers and CDN transforms.
+When bundling, make sure your tool treats
+`new URL("./wasmatrix.wasm", import.meta.url)` as an asset reference. This is
+the format expected by modern bundlers and CDN transforms.
 
 ## Development
 
 ```sh
-npm install
-npm run build
-npm test
-npm run coverage
-npm run test:e2e
-npm run benchmark
+deno task build
+deno task test
+deno task coverage
+deno task test:e2e
+deno task benchmark
 ```
 
-`npm run build` generates the WIT metadata and ESM adapter from `wasmatrix.ts`, compiles the same AssemblyScript source with SIMD enabled, emits `build/wasmatrix.wasm` and `build/wasmatrix.wat`, then writes `dist/index.js`, `dist/index.d.ts`, `dist/wasmatrix.wasm`, and `dist/wasmatrix.wit`.
+`deno task build` generates the WIT metadata and ESM adapter from
+`wasmatrix.ts`, compiles the same AssemblyScript source with SIMD enabled, emits
+`build/wasmatrix.wasm` and `build/wasmatrix.wat`, then writes `dist/index.js`,
+`dist/index.d.ts`, `dist/wasmatrix.wasm`, and `dist/wasmatrix.wit`.
 
-`npm test` runs unit tests and E2E transparency tests. `npm run coverage` writes `coverage/lcov.info`; CI derives `coverage/codecov.lcov.info` from it for the Codecov badge. `npm run benchmark` runs the E2E benchmark suite and prints a JSON summary with timings, speedups, and checksums.
+`deno task test` runs unit tests and E2E transparency tests.
+`deno task coverage` writes `coverage/lcov.info`; CI derives
+`coverage/codecov.lcov.info` from it for the Codecov badge.
+`deno task benchmark` runs the E2E benchmark suite and prints a JSON summary
+with timings, speedups, and checksums.
 
-Benchmark sizes can be adjusted with environment variables such as `WASMATRIX_BENCH_MATMUL_SIZE`, `WASMATRIX_BENCH_ELEMENT_ROWS`, `WASMATRIX_BENCH_ELEMENT_COLS`, and `WASMATRIX_BENCH_LINALG_SIZE`.
+Benchmark sizes can be adjusted with environment variables such as
+`WASMATRIX_BENCH_MATMUL_SIZE`, `WASMATRIX_BENCH_ELEMENT_ROWS`,
+`WASMATRIX_BENCH_ELEMENT_COLS`, and `WASMATRIX_BENCH_LINALG_SIZE`.
 
 ## Status
 
-WASMatrix is early software. The API is already useful for dense `f32` workflows, but more structures and higher-level algebraic representations are still being explored. Issues and focused benchmarks are welcome on [GitHub](https://github.com/ihasq/wasmatrix).
+WASMatrix is early software. The API is already useful for dense `f32`
+workflows, but more structures and higher-level algebraic representations are
+still being explored. Issues and focused benchmarks are welcome on
+[GitHub](https://github.com/ihasq/wasmatrix).

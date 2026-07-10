@@ -3,16 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "generate:i18n": "node scripts/generate-localized-docs.mjs",
-    "generate:api": "node scripts/generate-api-guide.mjs",
-    "prepare:runtime": "node scripts/prepare-runtime.mjs",
-    "capture:social-card": "node scripts/capture-social-card.mjs",
-    "prestart": "npm run generate:i18n && npm run generate:api && npm run prepare:runtime",
-    "start": "docusaurus start",
-    "prebuild": "npm run generate:i18n && npm run generate:api && npm run prepare:runtime",
-    "build": "docusaurus build",
-    "serve": "docusaurus serve",
-    "clear": "docusaurus clear"
+    "generate:i18n": "deno task generate:i18n",
+    "generate:api": "deno task generate:api",
+    "prepare:runtime": "deno task prepare:runtime",
+    "capture:social-card": "deno task capture:social-card",
+    "start": "deno task start",
+    "build": "deno task build",
+    "serve": "deno task serve",
+    "clear": "deno task clear"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -28,8 +26,5 @@
     "prism-react-renderer": "^2.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "typedoc": "^0.28.20"
   }
 }

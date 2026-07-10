@@ -1,27 +1,33 @@
-import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import siteContent from "../src/i18n/siteContent.cjs";
 
-const execFileAsync = promisify(execFile);
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptsDir, "..");
 const repoRoot = resolve(docsRoot, "..");
 const jsonPath = resolve(docsRoot, ".docusaurus/api-reference.json");
-const typedocCli = resolve(docsRoot, "node_modules/typedoc/dist/cli.js");
 const {
   DEFAULT_LOCALE,
   LOCALES,
   apiGuideContent,
-  getContentForLocale
+  getContentForLocale,
 } = siteContent;
 
 const METHOD_GROUPS = [
   {
     titleKey: "readingAndWriting",
-    names: ["at", "set", "row", "column", "diagonal", "reshape", "toFloat32Array", "toFlatArray", "toArray"]
+    names: [
+      "at",
+      "set",
+      "row",
+      "column",
+      "diagonal",
+      "reshape",
+      "toFloat32Array",
+      "toFlatArray",
+      "toArray",
+    ],
   },
   {
     titleKey: "elementwise",
@@ -42,29 +48,36 @@ const METHOD_GROUPS = [
       "floor",
       "ceil",
       "clamp",
-      "map"
-    ]
+      "map",
+    ],
   },
   {
     titleKey: "matrixOperations",
-    names: ["transpose", "matmul", "matvec", "dot", "clone"]
+    names: ["transpose", "matmul", "matvec", "dot", "clone"],
   },
   {
     titleKey: "reductions",
-    names: ["sum", "minValue", "maxValue", "trace", "frobeniusNorm"]
+    names: ["sum", "minValue", "maxValue", "trace", "frobeniusNorm"],
   },
   {
     titleKey: "linearAlgebra",
-    names: ["determinant", "logDet", "inverse", "solve", "leastSquares", "rank"]
+    names: [
+      "determinant",
+      "logDet",
+      "inverse",
+      "solve",
+      "leastSquares",
+      "rank",
+    ],
   },
   {
     titleKey: "memoryManagement",
-    names: ["dispose", "[dispose]"]
+    names: ["dispose", "[dispose]"],
   },
   {
     titleKey: "utilities",
-    names: ["equalsApprox", "toString"]
-  }
+    names: ["equalsApprox", "toString"],
+  },
 ];
 
 function byName(children = []) {
@@ -76,7 +89,8 @@ function escapeTable(value) {
 }
 
 function collapseWhitespace(value) {
-  return value.replace(/[ \t]*\n[ \t]*/g, " ").replace(/[ \t]{2,}/g, " ").trim();
+  return value.replace(/[ \t]*\n[ \t]*/g, " ").replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 function renderCommentParts(parts = []) {
@@ -97,7 +111,9 @@ function summaryOf(reflection) {
 function blockTags(reflection, tag) {
   return reflection?.comment?.blockTags
     ?.filter((blockTag) => blockTag.tag === tag)
-    ?.map((blockTag) => collapseWhitespace(renderCommentParts(blockTag.content)))
+    ?.map((blockTag) =>
+      collapseWhitespace(renderCommentParts(blockTag.content))
+    )
     ?.filter(Boolean) ?? [];
 }
 
@@ -124,12 +140,19 @@ function typeToString(type) {
       const signatures = type.declaration?.signatures ?? [];
       if (signatures.length > 0) {
         const signature = signatures[0];
-        const params = signature.parameters?.map(paramToString).join(", ") ?? "";
+        const params = signature.parameters?.map(paramToString).join(", ") ??
+          "";
         return `(${params}) => ${typeToString(signature.type)}`;
       }
       const children = type.declaration?.children ?? [];
       if (children.length === 0) return "object";
-      return `{ ${children.map((child) => `${child.name}${child.flags?.isOptional ? "?" : ""}: ${typeToString(child.type)}`).join("; ")} }`;
+      return `{ ${
+        children.map((child) =>
+          `${child.name}${child.flags?.isOptional ? "?" : ""}: ${
+            typeToString(child.type)
+          }`
+        ).join("; ")
+      } }`;
     }
     case "predicate":
       return "boolean";
@@ -161,8 +184,12 @@ function signatureName(member, signature, owner) {
 function signatureToString(member, signature, owner = "Matrix") {
   const params = signature.parameters?.map(paramToString).join(", ") ?? "";
   const name = signatureName(member, signature, owner);
-  const returnType = member.name === "constructor" ? owner : typeToString(signature.type);
-  return `${name}(${params})${member.name === "constructor" ? "" : `: ${returnType}`}`;
+  const returnType = member.name === "constructor"
+    ? owner
+    : typeToString(signature.type);
+  return `${name}(${params})${
+    member.name === "constructor" ? "" : `: ${returnType}`
+  }`;
 }
 
 function shortCall(member, signature, owner = "Matrix") {
@@ -182,7 +209,7 @@ function apiGuidePathForLocale(locale) {
     locale,
     "docusaurus-plugin-content-docs",
     "current",
-    "api-guide.md"
+    "api-guide.md",
   );
 }
 
@@ -196,7 +223,9 @@ function renderDetails(reflection, content) {
   for (const item of remarks) lines.push(`**${content.remarks}:** ${item}`);
   for (const item of returns) lines.push(`**${content.returns}:** ${item}`);
   for (const item of throws) lines.push(`**${content.throws}:** ${item}`);
-  for (const item of defaults) lines.push(`**${content.defaultLabel}:** ${item}`);
+  for (const item of defaults) {
+    lines.push(`**${content.defaultLabel}:** ${item}`);
+  }
 
   return lines.length ? `\n${lines.join("\n\n")}\n` : "";
 }
@@ -207,13 +236,15 @@ function renderParameters(signature, content) {
   const rows = params.map((param) => {
     const name = `${param.name}${param.flags?.isOptional ? "?" : ""}`;
     const description = summaryOf(param) || "-";
-    return `| \`${escapeTable(name)}\` | \`${escapeTable(typeToString(param.type))}\` | ${escapeTable(description)} |`;
+    return `| \`${escapeTable(name)}\` | \`${
+      escapeTable(typeToString(param.type))
+    }\` | ${escapeTable(description)} |`;
   });
   return [
     `| ${content.parameter} | ${content.type} | ${content.descriptionLabel} |`,
     "| --- | --- | --- |",
     ...rows,
-    ""
+    "",
   ].join("\n");
 }
 
@@ -247,29 +278,41 @@ function renderSignatureMember(member, content, owner = "Matrix") {
 function renderPropertyTable(title, properties, content) {
   const rows = properties.map((property) => {
     const marker = property.flags?.isReadonly ? "readonly " : "";
-    const description = [summaryOf(property), ...blockTags(property, "@remarks")]
+    const description = [
+      summaryOf(property),
+      ...blockTags(property, "@remarks"),
+    ]
       .filter(Boolean)
       .join(" ");
-    return `| \`${property.name}\` | \`${escapeTable(marker + typeToString(property.type))}\` | ${escapeTable(description || "-")} |`;
+    return `| \`${property.name}\` | \`${
+      escapeTable(marker + typeToString(property.type))
+    }\` | ${escapeTable(description || "-")} |`;
   });
 
   return [
     `## ${title}`,
     "",
-    `| ${content.property ?? "Property"} | ${content.type} | ${content.descriptionLabel} |`,
+    `| ${
+      content.property ?? "Property"
+    } | ${content.type} | ${content.descriptionLabel} |`,
     "| --- | --- | --- |",
     ...rows,
-    ""
+    "",
   ].join("\n");
 }
 
 function renderOptionTable(optionsReflection, content) {
   const rows = (optionsReflection.children ?? []).map((property) => {
     const defaultValue = blockTags(property, "@defaultValue")[0] ?? "-";
-    const description = [summaryOf(property), ...blockTags(property, "@remarks")]
+    const description = [
+      summaryOf(property),
+      ...blockTags(property, "@remarks"),
+    ]
       .filter(Boolean)
       .join(" ");
-    return `| \`${property.name}\` | \`${escapeTable(typeToString(property.type))}\` | ${escapeTable(defaultValue)} | ${escapeTable(description || "-")} |`;
+    return `| \`${property.name}\` | \`${
+      escapeTable(typeToString(property.type))
+    }\` | ${escapeTable(defaultValue)} | ${escapeTable(description || "-")} |`;
   });
 
   return [
@@ -280,7 +323,7 @@ function renderOptionTable(optionsReflection, content) {
     `| ${content.option} | ${content.type} | ${content.defaultLabel} | ${content.descriptionLabel} |`,
     "| --- | --- | ---: | --- |",
     ...rows,
-    ""
+    "",
   ].join("\n");
 }
 
@@ -293,7 +336,7 @@ function renderTypeAlias(typeAlias, content) {
     "```",
     "",
     summaryOf(typeAlias),
-    renderDetails(typeAlias, content)
+    renderDetails(typeAlias, content),
   ].join("\n").trim();
 }
 
@@ -310,7 +353,7 @@ function renderTopLevel(reflection, content) {
     "```",
     "",
     summaryOf(reflection),
-    renderDetails(reflection, content)
+    renderDetails(reflection, content),
   ].join("\n").trim();
 }
 
@@ -322,20 +365,31 @@ function renderMethodGroup(group, membersByName, content) {
     .filter(Boolean);
 
   if (rendered.length === 0) return "";
-  return [`## ${content.methodGroups[group.titleKey]}`, "", ...rendered].join("\n\n");
+  return [`## ${content.methodGroups[group.titleKey]}`, "", ...rendered].join(
+    "\n\n",
+  );
 }
 
 function generatedMarkdown(project, content) {
   const rootMembers = byName(project.children);
   const matrix = rootMembers.get("Matrix");
-  const matrixMembers = byName((matrix.children ?? []).filter((child) => !child.flags?.isStatic));
+  const matrixMembers = byName(
+    (matrix.children ?? []).filter((child) => !child.flags?.isStatic),
+  );
   const staticMethods = (matrix.children ?? [])
     .filter((child) => child.flags?.isStatic && child.signatures?.length)
     .sort((a, b) => a.name.localeCompare(b.name));
   const properties = (matrix.children ?? [])
-    .filter((child) => child.type && !child.signatures?.length && !child.flags?.isStatic)
+    .filter((child) =>
+      child.type && !child.signatures?.length && !child.flags?.isStatic
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
-  const runtimeHelpers = ["SIMD_REQUIRED", "isSimdSupported", "createRuntime", "configure"]
+  const runtimeHelpers = [
+    "SIMD_REQUIRED",
+    "isSimdSupported",
+    "createRuntime",
+    "configure",
+  ]
     .map((name) => rootMembers.get(name))
     .filter(Boolean);
 
@@ -360,14 +414,16 @@ function generatedMarkdown(project, content) {
     "  configure,",
     "  createRuntime,",
     "  isSimdSupported",
-    "} from \"wasmatrix\";",
+    '} from "wasmatrix";',
     "```",
     "",
     content.generatedNote,
     "",
     `## ${content.runtimeHelpers}`,
     "",
-    ...runtimeHelpers.map((member) => renderTopLevel(member, content)).flatMap((item) => [item, ""]),
+    ...runtimeHelpers.map((member) => renderTopLevel(member, content)).flatMap((
+      item,
+    ) => [item, ""]),
     renderOptionTable(rootMembers.get("WasmatrixOptions"), content),
     renderTypeAlias(rootMembers.get("WasmBytes"), content),
     "## `Matrix`",
@@ -382,38 +438,69 @@ function generatedMarkdown(project, content) {
     renderPropertyTable(content.properties, properties, content),
     `## ${content.staticMethods}`,
     "",
-    ...staticMethods.map((member) => renderSignatureMember(member, content)).flatMap((item) => [item, ""]),
-    ...METHOD_GROUPS.map((group) => renderMethodGroup(group, matrixMembers, content)).filter(Boolean)
+    ...staticMethods.map((member) => renderSignatureMember(member, content))
+      .flatMap((item) => [item, ""]),
+    ...METHOD_GROUPS.map((group) =>
+      renderMethodGroup(group, matrixMembers, content)
+    ).filter(Boolean),
   ];
 
-  return `${sections.filter((section) => section != null).join("\n\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
+  return `${
+    sections.filter((section) => section != null).join("\n\n").replace(
+      /\n{3,}/g,
+      "\n\n",
+    ).trimEnd()
+  }\n`;
 }
 
 await mkdir(dirname(jsonPath), { recursive: true });
 
-await execFileAsync(process.execPath, [
-  typedocCli,
-  "--tsconfig",
-  resolve(docsRoot, "tsconfig.typedoc.json"),
-  "--json",
-  jsonPath,
-  resolve(repoRoot, "index.d.ts"),
-  "--name",
-  "WASMatrix",
-  "--readme",
-  "none",
-  "--disableSources",
-  "--excludePrivate",
-  "--excludeProtected"
-], {
+const typedoc = await new Deno.Command(Deno.execPath(), {
+  args: [
+    "run",
+    "-A",
+    "npm:typedoc@0.28.20",
+    "--tsconfig",
+    resolve(docsRoot, "tsconfig.typedoc.json"),
+    "--json",
+    jsonPath,
+    resolve(repoRoot, "index.d.ts"),
+    "--name",
+    "WASMatrix",
+    "--readme",
+    "none",
+    "--disableSources",
+    "--excludePrivate",
+    "--excludeProtected",
+  ],
   cwd: docsRoot,
-  maxBuffer: 1024 * 1024 * 16
-});
+  stdout: "inherit",
+  stderr: "inherit",
+}).output();
+
+if (!typedoc.success) {
+  throw new Error(`typedoc failed with ${typedoc.code}`);
+}
 
 const project = JSON.parse(await readFile(jsonPath, "utf8"));
+const generatedPaths = [];
 
 for (const { code } of LOCALES) {
   const outputPath = apiGuidePathForLocale(code);
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, generatedMarkdown(project, getContentForLocale(apiGuideContent, code)));
+  await writeFile(
+    outputPath,
+    generatedMarkdown(project, getContentForLocale(apiGuideContent, code)),
+  );
+  generatedPaths.push(outputPath);
+}
+
+const formatter = await new Deno.Command(Deno.execPath(), {
+  args: ["fmt", ...generatedPaths],
+  stdout: "null",
+  stderr: "inherit",
+}).output();
+
+if (!formatter.success) {
+  throw new Error(`deno fmt failed with ${formatter.code}`);
 }

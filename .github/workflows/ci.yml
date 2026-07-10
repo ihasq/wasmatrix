@@ -18,24 +18,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
         with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
+          deno-version: v2.x
 
       - name: Run coverage
-        run: npm run coverage:codecov
+        run: deno task coverage:codecov
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage/codecov.lcov.info
           disable_search: true
-          flags: node
-          name: node-coverage
+          flags: deno
+          name: deno-coverage
           fail_ci_if_error: true
           use_oidc: true

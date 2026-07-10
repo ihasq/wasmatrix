@@ -1,5 +1,11 @@
-import { spawn } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,21 +14,23 @@ const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptsDir, "..");
 const defaultUrl = "https://wasmatrix.pages.dev/";
 const defaultOutput = resolve(docsRoot, "static/img/social-card.png");
-const targetUrl = process.argv[2] ?? defaultUrl;
-const outputPath = process.argv[3] ? resolve(docsRoot, process.argv[3]) : defaultOutput;
+const targetUrl = Deno.args[0] ?? defaultUrl;
+const outputPath = Deno.args[1]
+  ? resolve(docsRoot, Deno.args[1])
+  : defaultOutput;
 const viewport = { width: 1200, height: 630 };
 
 const chromeCandidates = [
-  process.env.CHROME_PATH,
+  Deno.env.get("CHROME_PATH"),
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/usr/bin/google-chrome",
   "/usr/bin/google-chrome-stable",
   "/usr/bin/chromium",
-  "/usr/bin/chromium-browser"
-].filter(Boolean);
+  "/usr/bin/chromium-browser",
+].filter((candidate): candidate is string => Boolean(candidate));
 
-function delay(ms) {
+function delay(ms: number) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
@@ -36,10 +44,12 @@ async function findChrome() {
     }
   }
 
-  throw new Error("Chrome was not found. Set CHROME_PATH to a Chrome or Chromium executable.");
+  throw new Error(
+    "Chrome was not found. Set CHROME_PATH to a Chrome or Chromium executable.",
+  );
 }
 
-async function readDevToolsPort(profileDir) {
+async function readDevToolsPort(profileDir: string) {
   const portFile = resolve(profileDir, "DevToolsActivePort");
   for (let attempt = 0; attempt < 120; attempt += 1) {
     try {
@@ -53,21 +63,39 @@ async function readDevToolsPort(profileDir) {
   throw new Error("Timed out waiting for Chrome DevToolsActivePort.");
 }
 
+function decodeBase64(value: string) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 class CdpClient {
-  constructor(webSocketUrl) {
-    this.nextId = 1;
-    this.pending = new Map();
-    this.events = new Map();
+  nextId = 1;
+  pending = new Map<
+    number,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  >();
+  events = new Map<string, Array<(params: unknown) => void>>();
+  socket: WebSocket;
+  ready: Promise<Event>;
+
+  constructor(webSocketUrl: string) {
     this.socket = new WebSocket(webSocketUrl);
-    this.ready = new Promise((resolveReady, rejectReady) => {
+    this.ready = new Promise<Event>((resolveReady, rejectReady) => {
       this.socket.addEventListener("open", resolveReady, { once: true });
       this.socket.addEventListener("error", rejectReady, { once: true });
     });
-    this.socket.addEventListener("message", (event) => this.handleMessage(event));
+    this.socket.addEventListener(
+      "message",
+      (event) => this.handleMessage(event),
+    );
   }
 
-  handleMessage(event) {
-    const message = JSON.parse(event.data);
+  handleMessage(event: MessageEvent) {
+    const message = JSON.parse(String(event.data));
     if (message.id != null) {
       const pending = this.pending.get(message.id);
       if (pending == null) return;
@@ -84,30 +112,34 @@ class CdpClient {
     for (const listener of listeners) listener(message.params);
   }
 
-  async send(method, params = {}) {
+  async send(method: string, params: Record<string, unknown> = {}) {
     await this.ready;
     const id = this.nextId;
     this.nextId += 1;
     this.socket.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolveSend, rejectSend) => {
+    return new Promise<unknown>((resolveSend, rejectSend) => {
       this.pending.set(id, { resolve: resolveSend, reject: rejectSend });
     });
   }
 
-  waitForEvent(method, timeoutMs = 15000) {
-    return new Promise((resolveEvent, rejectEvent) => {
+  waitForEvent(method: string, timeoutMs = 15000) {
+    return new Promise<unknown>((resolveEvent, rejectEvent) => {
       const timeout = setTimeout(() => {
         this.events.set(
           method,
-          (this.events.get(method) ?? []).filter((listener) => listener !== onEvent)
+          (this.events.get(method) ?? []).filter((listener) =>
+            listener !== onEvent
+          ),
         );
         rejectEvent(new Error(`Timed out waiting for ${method}.`));
       }, timeoutMs);
-      const onEvent = (params) => {
+      const onEvent = (params: unknown) => {
         clearTimeout(timeout);
         this.events.set(
           method,
-          (this.events.get(method) ?? []).filter((listener) => listener !== onEvent)
+          (this.events.get(method) ?? []).filter((listener) =>
+            listener !== onEvent
+          ),
         );
         resolveEvent(params);
       };
@@ -120,37 +152,45 @@ class CdpClient {
   }
 }
 
-async function createPage(port) {
-  const response = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, {
-    method: "PUT"
-  });
+async function createPage(port: number) {
+  const response = await fetch(
+    `http://127.0.0.1:${port}/json/new?about:blank`,
+    {
+      method: "PUT",
+    },
+  );
   if (!response.ok) {
-    throw new Error(`Failed to create Chrome target: ${response.status} ${response.statusText}`);
+    throw new Error(
+      `Failed to create Chrome target: ${response.status} ${response.statusText}`,
+    );
   }
-  const target = await response.json();
+  const target = await response.json() as { webSocketDebuggerUrl: string };
   return new CdpClient(target.webSocketDebuggerUrl);
 }
 
 async function capture() {
   const chrome = await findChrome();
   const profileDir = await mkdtemp(resolve(tmpdir(), "wasmatrix-og-"));
-  const chromeProcess = spawn(chrome, [
-    "--headless=new",
-    "--hide-scrollbars",
-    "--disable-gpu",
-    "--disable-background-networking",
-    "--disable-component-update",
-    "--disable-sync",
-    "--no-first-run",
-    "--no-default-browser-check",
-    "--remote-debugging-port=0",
-    `--user-data-dir=${profileDir}`,
-    "--lang=en-US",
-    `--window-size=${viewport.width},${viewport.height}`,
-    "about:blank"
-  ], {
-    stdio: "ignore"
-  });
+  const chromeProcess = new Deno.Command(chrome, {
+    args: [
+      "--headless=new",
+      "--hide-scrollbars",
+      "--disable-gpu",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-sync",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--remote-debugging-port=0",
+      `--user-data-dir=${profileDir}`,
+      "--lang=en-US",
+      `--window-size=${viewport.width},${viewport.height}`,
+      "about:blank",
+    ],
+    stdin: "null",
+    stdout: "null",
+    stderr: "null",
+  }).spawn();
 
   let page;
   try {
@@ -162,7 +202,7 @@ async function capture() {
       width: viewport.width,
       height: viewport.height,
       deviceScaleFactor: 1,
-      mobile: false
+      mobile: false,
     });
 
     const loaded = page.waitForEvent("Page.loadEventFired");
@@ -224,7 +264,7 @@ async function capture() {
           await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
           await new Promise((resolve) => setTimeout(resolve, 900));
         })();
-      `
+      `,
     });
 
     const screenshot = await page.send("Page.captureScreenshot", {
@@ -235,15 +275,16 @@ async function capture() {
         y: 0,
         width: viewport.width,
         height: viewport.height,
-        scale: 1
-      }
-    });
+        scale: 1,
+      },
+    }) as { data: string };
 
     await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, Buffer.from(screenshot.data, "base64"));
+    await writeFile(outputPath, decodeBase64(screenshot.data));
   } finally {
     page?.close();
     chromeProcess.kill("SIGTERM");
+    await chromeProcess.status.catch(() => undefined);
     await rm(profileDir, { recursive: true, force: true });
   }
 }

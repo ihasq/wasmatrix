@@ -9,7 +9,7 @@ const {
   DEFAULT_LOCALE,
   LOCALES,
   getContentForLocale,
-  gettingStartedContent
+  gettingStartedContent,
 } = siteContent;
 
 function localizedDocPath(locale, docName) {
@@ -19,7 +19,7 @@ function localizedDocPath(locale, docName) {
     locale,
     "docusaurus-plugin-content-docs",
     "current",
-    `${docName}.md`
+    `${docName}.md`,
   );
 }
 
@@ -214,11 +214,10 @@ try {
 ${content.developmentBody}
 
 \`\`\`bash
-npm install
-npm run build
-npm test
-npm run test:e2e
-npm run benchmark
+deno task build
+deno task test
+deno task test:e2e
+deno task benchmark
 \`\`\`
 
 ## ${content.next}
@@ -231,5 +230,8 @@ for (const { code } of LOCALES) {
   if (code === DEFAULT_LOCALE) continue;
   const outputPath = localizedDocPath(code, "getting-started");
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, gettingStartedMarkdown(getContentForLocale(gettingStartedContent, code)));
+  await writeFile(
+    outputPath,
+    gettingStartedMarkdown(getContentForLocale(gettingStartedContent, code)),
+  );
 }
