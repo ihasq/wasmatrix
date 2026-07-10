@@ -17,7 +17,7 @@ comment:
   require_changes: false
 
 ignore:
-  - "src/assembly/**"
+  - "src/wasmatrix.ts"
   - "build/**"
   - "dist/**"
   - "docs/**"

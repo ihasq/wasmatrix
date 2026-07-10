@@ -1,6 +1,6 @@
 {
   "entries": [
-    "src/assembly/wasmatrix.ts"
+    "src/wasmatrix.ts"
   ],
   "options": {
     "enable": [

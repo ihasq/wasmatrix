@@ -213,7 +213,7 @@ npm run test:e2e
 npm run benchmark
 ```
 
-`npm run build` compiles `src/assembly/wasmatrix.ts` with SIMD enabled, emits `build/wasmatrix.wasm` and `build/wasmatrix.wat`, compiles `src/index.ts` to `dist/index.js`, and copies the WASM binary to `dist/wasmatrix.wasm`.
+`npm run build` compiles `src/wasmatrix.ts` with SIMD enabled, emits `build/wasmatrix.wasm` and `build/wasmatrix.wat`, compiles `src/index.ts` to `dist/index.js`, and copies the WASM binary to `dist/wasmatrix.wasm`.
 
 `npm test` runs unit tests and E2E transparency tests. `npm run coverage` writes `coverage/lcov.info`; CI derives `coverage/codecov.lcov.info` from it for the Codecov badge. `npm run benchmark` runs the E2E benchmark suite and prints a JSON summary with timings, speedups, and checksums.
 
