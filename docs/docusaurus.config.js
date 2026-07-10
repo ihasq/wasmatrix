@@ -9,7 +9,7 @@ const config = {
   tagline: "AssemblyScript matrix operations for WebAssembly SIMD runtimes.",
   favicon: "img/favicon.svg",
   url: "https://ihasq.github.io",
-  baseUrl: "/wasmatrix/",
+  baseUrl: "/",
   organizationName: "ihasq",
   projectName: "wasmatrix",
   trailingSlash: false,
