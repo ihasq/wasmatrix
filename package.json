@@ -42,6 +42,7 @@
     "docs:dev": "npm --prefix docs run start -- --host 127.0.0.1",
     "test": "npm run build && node --test test/*.test.mjs",
     "coverage": "npm run build && c8 --reporter=text --reporter=lcov node --test test/*.test.mjs",
+    "coverage:codecov": "npm run coverage && node scripts/prepare-codecov-lcov.mjs",
     "test:e2e": "npm run build && node --test test/e2e-transparency.test.mjs test/e2e-benchmark.mjs",
     "test:e2e:transparency": "npm run build && node --test test/e2e-transparency.test.mjs",
     "test:e2e:benchmark": "npm run build && node --test test/e2e-benchmark.mjs",

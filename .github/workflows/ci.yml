@@ -28,12 +28,12 @@ jobs:
         run: npm ci
 
       - name: Run coverage
-        run: npm run coverage
+        run: npm run coverage:codecov
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/lcov.info
+          files: ./coverage/codecov.lcov.info
           disable_search: true
           flags: node
           name: node-coverage
