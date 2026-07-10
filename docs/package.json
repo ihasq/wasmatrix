@@ -3,10 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
+    "generate:api": "node scripts/generate-api-guide.mjs",
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
-    "prestart": "npm run prepare:runtime",
+    "prestart": "npm run generate:api && npm run prepare:runtime",
     "start": "docusaurus start",
-    "prebuild": "npm run prepare:runtime",
+    "prebuild": "npm run generate:api && npm run prepare:runtime",
     "build": "docusaurus build",
     "serve": "docusaurus serve",
     "clear": "docusaurus clear"
@@ -24,5 +25,8 @@
     "prism-react-renderer": "^2.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.20"
   }
 }

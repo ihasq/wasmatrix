@@ -39,6 +39,7 @@
     "build:ts": "tsc -p tsconfig.json",
     "build:dist": "node scripts/prepare-dist.mjs build/wasmatrix.wasm",
     "build:debug": "asc --config asconfig.json --target debug && npm run build:ts && node scripts/prepare-dist.mjs build/wasmatrix.debug.wasm",
+    "docs:dev": "npm --prefix docs run start -- --host 127.0.0.1",
     "test": "npm run build && node --test test/*.test.mjs",
     "test:e2e": "npm run build && node --test test/e2e-transparency.test.mjs test/e2e-benchmark.mjs",
     "test:e2e:transparency": "npm run build && node --test test/e2e-transparency.test.mjs",
