@@ -21,8 +21,8 @@ import {
   refSubtractScalar,
   refSum,
   refTrace,
-  refTranspose
-} from "./helpers/reference-matrix.mjs";
+  refTranspose,
+} from "./helpers/reference-matrix.ts";
 
 function envInt(name, fallback) {
   const raw = process.env[name];
@@ -40,7 +40,7 @@ function timed(fn) {
   const result = fn();
   return {
     ...result,
-    elapsedMs: performance.now() - start
+    elapsedMs: performance.now() - start,
   };
 }
 
@@ -48,7 +48,7 @@ function assertClose(actual, expected, name, relativeTolerance = 1e-4) {
   const tolerance = Math.max(1e-3, Math.abs(expected) * relativeTolerance);
   assert.ok(
     Math.abs(actual - expected) <= tolerance,
-    `${name}: expected ${expected}, got ${actual}, tolerance ${tolerance}`
+    `${name}: expected ${expected}, got ${actual}, tolerance ${tolerance}`,
   );
 }
 
@@ -61,8 +61,16 @@ function makeDominantData(size, seed) {
 }
 
 function runWasmElementwise(rows, cols, iterations) {
-  const a = Matrix.from(rows, cols, makeData(rows, cols, 0x85ebca6b, { min: -2, max: 2 }));
-  const b = Matrix.from(rows, cols, makeData(rows, cols, 0xc2b2ae35, { min: -1.5, max: 1.5 }));
+  const a = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x85ebca6b, { min: -2, max: 2 }),
+  );
+  const b = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0xc2b2ae35, { min: -1.5, max: 1.5 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -92,8 +100,16 @@ function runWasmElementwise(rows, cols, iterations) {
 }
 
 function runJsElementwise(rows, cols, iterations) {
-  const a = refMatrix(rows, cols, makeData(rows, cols, 0x85ebca6b, { min: -2, max: 2 }));
-  const b = refMatrix(rows, cols, makeData(rows, cols, 0xc2b2ae35, { min: -1.5, max: 1.5 }));
+  const a = refMatrix(
+    rows,
+    cols,
+    makeData(rows, cols, 0x85ebca6b, { min: -2, max: 2 }),
+  );
+  const b = refMatrix(
+    rows,
+    cols,
+    makeData(rows, cols, 0xc2b2ae35, { min: -1.5, max: 1.5 }),
+  );
   let checksum = 0;
 
   return timed(() => {
@@ -103,13 +119,13 @@ function runJsElementwise(rows, cols, iterations) {
           refClamp(
             refHadamard(
               refSubtractScalar(refAdd(a, b), 0.125 + (i % 5) * 0.01),
-              refAddScalar(refAbs(b), 0.75)
+              refAddScalar(refAbs(b), 0.75),
             ),
             -3,
-            3
+            3,
           ),
-          3.25
-        )
+          3.25,
+        ),
       );
 
       checksum += refSum(rooted);
@@ -119,7 +135,11 @@ function runJsElementwise(rows, cols, iterations) {
 }
 
 function runWasmAffineChain(rows, cols, iterations) {
-  const matrix = Matrix.from(rows, cols, makeData(rows, cols, 0x7f4a7c15, { min: -4, max: 4 }));
+  const matrix = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x7f4a7c15, { min: -4, max: 4 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -142,7 +162,11 @@ function runWasmAffineChain(rows, cols, iterations) {
 }
 
 function runJsAffineChain(rows, cols, iterations) {
-  const matrix = refMatrix(rows, cols, makeData(rows, cols, 0x7f4a7c15, { min: -4, max: 4 }));
+  const matrix = refMatrix(
+    rows,
+    cols,
+    makeData(rows, cols, 0x7f4a7c15, { min: -4, max: 4 }),
+  );
   let checksum = 0;
 
   return timed(() => {
@@ -150,9 +174,9 @@ function runJsAffineChain(rows, cols, iterations) {
       const transformed = refScale(
         refSubtractScalar(
           refAddScalar(refScale(refScale(matrix, 2), 3), 1 + (i % 3) * 0.01),
-          0.5
+          0.5,
         ),
-        0.5
+        0.5,
       );
       checksum += refSum(transformed);
     }
@@ -161,8 +185,16 @@ function runJsAffineChain(rows, cols, iterations) {
 }
 
 function runWasmMatmul(size, iterations) {
-  const left = Matrix.from(size, size, makeData(size, size, 0x27d4eb2f, { min: -1, max: 1 }));
-  const right = Matrix.from(size, size, makeData(size, size, 0x165667b1, { min: -1, max: 1 }));
+  const left = Matrix.from(
+    size,
+    size,
+    makeData(size, size, 0x27d4eb2f, { min: -1, max: 1 }),
+  );
+  const right = Matrix.from(
+    size,
+    size,
+    makeData(size, size, 0x165667b1, { min: -1, max: 1 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -186,13 +218,24 @@ function runWasmMatmul(size, iterations) {
 }
 
 function runJsMatmul(size, iterations) {
-  const left = refMatrix(size, size, makeData(size, size, 0x27d4eb2f, { min: -1, max: 1 }));
-  const right = refMatrix(size, size, makeData(size, size, 0x165667b1, { min: -1, max: 1 }));
+  const left = refMatrix(
+    size,
+    size,
+    makeData(size, size, 0x27d4eb2f, { min: -1, max: 1 }),
+  );
+  const right = refMatrix(
+    size,
+    size,
+    makeData(size, size, 0x165667b1, { min: -1, max: 1 }),
+  );
   let checksum = 0;
 
   return timed(() => {
     for (let i = 0; i < iterations; i++) {
-      const scaled = refScale(refMatmul(refAddScalar(left, (i % 7) * 0.005), right), 0.001);
+      const scaled = refScale(
+        refMatmul(refAddScalar(left, (i % 7) * 0.005), right),
+        0.001,
+      );
       checksum += refTrace(scaled);
     }
     return { checksum };
@@ -202,9 +245,21 @@ function runJsMatmul(size, iterations) {
 function runWasmDiagonalSpecialization(size, rhsCols, iterations) {
   const values = makeData(size, 1, 0x22f0f1a5, { min: 0.5, max: 2 });
   const diagonal = Matrix.diagonal(values);
-  const right = Matrix.from(size, rhsCols, makeData(size, rhsCols, 0x3bd39e10, { min: -1, max: 1 }));
-  const left = Matrix.from(rhsCols, size, makeData(rhsCols, size, 0x7cab1231, { min: -1, max: 1 }));
-  const rhs = Matrix.from(size, rhsCols, makeData(size, rhsCols, 0x51f15eaa, { min: -2, max: 2 }));
+  const right = Matrix.from(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0x3bd39e10, { min: -1, max: 1 }),
+  );
+  const left = Matrix.from(
+    rhsCols,
+    size,
+    makeData(rhsCols, size, 0x7cab1231, { min: -1, max: 1 }),
+  );
+  const rhs = Matrix.from(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0x51f15eaa, { min: -2, max: 2 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -237,9 +292,21 @@ function runWasmDiagonalSpecialization(size, rhsCols, iterations) {
 function runJsDiagonalSpecialization(size, rhsCols, iterations) {
   const values = makeData(size, 1, 0x22f0f1a5, { min: 0.5, max: 2 });
   const diagonal = refDiagonalMatrix(refMatrix(size, 1, values));
-  const right = refMatrix(size, rhsCols, makeData(size, rhsCols, 0x3bd39e10, { min: -1, max: 1 }));
-  const left = refMatrix(rhsCols, size, makeData(rhsCols, size, 0x7cab1231, { min: -1, max: 1 }));
-  const rhs = refMatrix(size, rhsCols, makeData(size, rhsCols, 0x51f15eaa, { min: -2, max: 2 }));
+  const right = refMatrix(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0x3bd39e10, { min: -1, max: 1 }),
+  );
+  const left = refMatrix(
+    rhsCols,
+    size,
+    makeData(rhsCols, size, 0x7cab1231, { min: -1, max: 1 }),
+  );
+  const rhs = refMatrix(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0x51f15eaa, { min: -2, max: 2 }),
+  );
   let checksum = 0;
 
   return timed(() => {
@@ -259,9 +326,21 @@ function runJsDiagonalSpecialization(size, rhsCols, iterations) {
 }
 
 function runWasmBroadcastFusion(rows, cols, iterations) {
-  const matrix = Matrix.from(rows, cols, makeData(rows, cols, 0x8102ac4d, { min: 0, max: 2 }));
-  const row = Matrix.from(1, cols, makeData(1, cols, 0x6d2b79f5, { min: 0.5, max: 1.5 }));
-  const column = Matrix.from(rows, 1, makeData(rows, 1, 0x42f0e1bd, { min: 0.5, max: 1.5 }));
+  const matrix = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x8102ac4d, { min: 0, max: 2 }),
+  );
+  const row = Matrix.from(
+    1,
+    cols,
+    makeData(1, cols, 0x6d2b79f5, { min: 0.5, max: 1.5 }),
+  );
+  const column = Matrix.from(
+    rows,
+    1,
+    makeData(rows, 1, 0x42f0e1bd, { min: 0.5, max: 1.5 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -298,7 +377,10 @@ function runJsBroadcastFusion(rows, cols, iterations) {
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
           const index = r * cols + c;
-          const value = Math.min(Math.max((matrix[index] + row[c]) * column[r] - shift, -2), 4) + 2.25;
+          const value = Math.min(
+            Math.max((matrix[index] + row[c]) * column[r] - shift, -2),
+            4,
+          ) + 2.25;
           checksum += Math.sqrt(value);
         }
       }
@@ -311,7 +393,7 @@ function makeDistributiveData() {
   return {
     a: makeData(128, 64, 0x1f357a9d, { min: -1, max: 1 }),
     b: makeData(64, 96, 0x92a1b3cd, { min: -1, max: 1 }),
-    c: makeData(64, 96, 0x52be99f1, { min: -1, max: 1 })
+    c: makeData(64, 96, 0x52be99f1, { min: -1, max: 1 }),
   };
 }
 
@@ -370,7 +452,7 @@ function runWasmDistributiveMaterialized(iterations) {
 function makeTransposeData() {
   return {
     a: makeData(256, 64, 0x17a7c08f, { min: -1, max: 1 }),
-    b: makeData(128, 64, 0x8f2c7ab1, { min: -1, max: 1 })
+    b: makeData(128, 64, 0x8f2c7ab1, { min: -1, max: 1 }),
   };
 }
 
@@ -423,7 +505,7 @@ function makeChainData() {
   return {
     a: makeData(256, 8, 0x12b9b0a1, { min: -1, max: 1 }),
     b: makeData(8, 256, 0x4c2f19dd, { min: -1, max: 1 }),
-    c: makeData(256, 8, 0x6d1f2a71, { min: -1, max: 1 })
+    c: makeData(256, 8, 0x6d1f2a71, { min: -1, max: 1 }),
   };
 }
 
@@ -477,7 +559,11 @@ function runWasmMatmulChainLeftAssociated(iterations) {
 
 function runWasmLinearAlgebra(size, rhsCols, iterations) {
   const matrix = Matrix.from(size, size, makeDominantData(size, 0xd3a2646c));
-  const rhs = Matrix.from(size, rhsCols, makeData(size, rhsCols, 0xfd7046c5, { min: -2, max: 2 }));
+  const rhs = Matrix.from(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0xfd7046c5, { min: -2, max: 2 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -505,7 +591,11 @@ function runWasmLinearAlgebra(size, rhsCols, iterations) {
 
 function runJsLinearAlgebra(size, rhsCols, iterations) {
   const matrix = refMatrix(size, size, makeDominantData(size, 0xd3a2646c));
-  const rhs = refMatrix(size, rhsCols, makeData(size, rhsCols, 0xfd7046c5, { min: -2, max: 2 }));
+  const rhs = refMatrix(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0xfd7046c5, { min: -2, max: 2 }),
+  );
   let checksum = 0;
 
   return timed(() => {
@@ -635,8 +725,16 @@ function runJsQrReference(rows, cols, rhsCols, iterations) {
 }
 
 function runWasmReductionCache(rows, cols, iterations) {
-  const a = Matrix.from(rows, cols, makeData(rows, cols, 0x510e527f, { min: 0.1, max: 2 }));
-  const b = Matrix.from(rows, cols, makeData(rows, cols, 0x9b05688c, { min: 0.1, max: 2 }));
+  const a = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x510e527f, { min: 0.1, max: 2 }),
+  );
+  const b = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x9b05688c, { min: 0.1, max: 2 }),
+  );
   const expr = a.add(b).hadamard(a).sqrt();
   let checksum = 0;
 
@@ -658,8 +756,16 @@ function runWasmReductionCache(rows, cols, iterations) {
 }
 
 function runWasmReductionFresh(rows, cols, iterations) {
-  const a = Matrix.from(rows, cols, makeData(rows, cols, 0x510e527f, { min: 0.1, max: 2 }));
-  const b = Matrix.from(rows, cols, makeData(rows, cols, 0x9b05688c, { min: 0.1, max: 2 }));
+  const a = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x510e527f, { min: 0.1, max: 2 }),
+  );
+  const b = Matrix.from(
+    rows,
+    cols,
+    makeData(rows, cols, 0x9b05688c, { min: 0.1, max: 2 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -682,7 +788,11 @@ function runWasmReductionFresh(rows, cols, iterations) {
 
 function runWasmInverseMatmul(size, rhsCols, iterations) {
   const matrix = Matrix.from(size, size, makeDominantData(size, 0x94d049bb));
-  const rhs = Matrix.from(size, rhsCols, makeData(size, rhsCols, 0x8538ECB5, { min: -1, max: 1 }));
+  const rhs = Matrix.from(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0x8538ECB5, { min: -1, max: 1 }),
+  );
   let checksum = 0;
 
   const result = timed(() => {
@@ -705,7 +815,11 @@ function runWasmInverseMatmul(size, rhsCols, iterations) {
 
 function runJsInverseMatmul(size, rhsCols, iterations) {
   const matrix = refMatrix(size, size, makeDominantData(size, 0x94d049bb));
-  const rhs = refMatrix(size, rhsCols, makeData(size, rhsCols, 0x8538ECB5, { min: -1, max: 1 }));
+  const rhs = refMatrix(
+    size,
+    rhsCols,
+    makeData(size, rhsCols, 0x8538ECB5, { min: -1, max: 1 }),
+  );
   let checksum = 0;
 
   return timed(() => {
@@ -717,7 +831,9 @@ function runJsInverseMatmul(size, rhsCols, iterations) {
   });
 }
 
-test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { timeout: 120_000 }, () => {
+test("E2E benchmark: matrix pipelines are measurable and checksum-stable", {
+  timeout: 120_000,
+}, () => {
   const elementRows = envInt("WASMATRIX_BENCH_ELEMENT_ROWS", 128);
   const elementCols = envInt("WASMATRIX_BENCH_ELEMENT_COLS", 128);
   const elementIterations = envInt("WASMATRIX_BENCH_ELEMENT_ITERS", 40);
@@ -728,7 +844,10 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
   const diagonalRhsCols = envInt("WASMATRIX_BENCH_DIAGONAL_RHS_COLS", 8);
   const diagonalIterations = envInt("WASMATRIX_BENCH_DIAGONAL_ITERS", 6);
   const broadcastIterations = envInt("WASMATRIX_BENCH_BROADCAST_ITERS", 40);
-  const distributiveIterations = envInt("WASMATRIX_BENCH_DISTRIBUTIVE_ITERS", 4);
+  const distributiveIterations = envInt(
+    "WASMATRIX_BENCH_DISTRIBUTIVE_ITERS",
+    4,
+  );
   const transposeIterations = envInt("WASMATRIX_BENCH_TRANSPOSE_ITERS", 3);
   const chainIterations = envInt("WASMATRIX_BENCH_CHAIN_ITERS", 10);
   const linalgSize = envInt("WASMATRIX_BENCH_LINALG_SIZE", 12);
@@ -738,49 +857,171 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
   const qrRows = envInt("WASMATRIX_BENCH_QR_ROWS", 24);
   const qrCols = envInt("WASMATRIX_BENCH_QR_COLS", 8);
   const qrIterations = envInt("WASMATRIX_BENCH_QR_ITERS", 10);
-  const reductionCacheIterations = envInt("WASMATRIX_BENCH_REDUCTION_CACHE_ITERS", 200);
-  const inverseMatmulIterations = envInt("WASMATRIX_BENCH_INVERSE_MATMUL_ITERS", 12);
+  const reductionCacheIterations = envInt(
+    "WASMATRIX_BENCH_REDUCTION_CACHE_ITERS",
+    200,
+  );
+  const inverseMatmulIterations = envInt(
+    "WASMATRIX_BENCH_INVERSE_MATMUL_ITERS",
+    12,
+  );
 
-  const elementWasm = runWasmElementwise(elementRows, elementCols, elementIterations);
-  const elementJs = runJsElementwise(elementRows, elementCols, elementIterations);
-  const affineWasm = runWasmAffineChain(elementRows, elementCols, affineIterations);
+  const elementWasm = runWasmElementwise(
+    elementRows,
+    elementCols,
+    elementIterations,
+  );
+  const elementJs = runJsElementwise(
+    elementRows,
+    elementCols,
+    elementIterations,
+  );
+  const affineWasm = runWasmAffineChain(
+    elementRows,
+    elementCols,
+    affineIterations,
+  );
   const affineJs = runJsAffineChain(elementRows, elementCols, affineIterations);
   const matmulWasm = runWasmMatmul(matmulSize, matmulIterations);
   const matmulJs = runJsMatmul(matmulSize, matmulIterations);
-  const diagonalWasm = runWasmDiagonalSpecialization(diagonalSize, diagonalRhsCols, diagonalIterations);
-  const diagonalJs = runJsDiagonalSpecialization(diagonalSize, diagonalRhsCols, diagonalIterations);
-  const broadcastWasm = runWasmBroadcastFusion(elementRows, elementCols, broadcastIterations);
-  const broadcastJs = runJsBroadcastFusion(elementRows, elementCols, broadcastIterations);
-  const distributiveOptimized = runWasmDistributiveOptimized(distributiveIterations);
-  const distributiveMaterialized = runWasmDistributiveMaterialized(distributiveIterations);
+  const diagonalWasm = runWasmDiagonalSpecialization(
+    diagonalSize,
+    diagonalRhsCols,
+    diagonalIterations,
+  );
+  const diagonalJs = runJsDiagonalSpecialization(
+    diagonalSize,
+    diagonalRhsCols,
+    diagonalIterations,
+  );
+  const broadcastWasm = runWasmBroadcastFusion(
+    elementRows,
+    elementCols,
+    broadcastIterations,
+  );
+  const broadcastJs = runJsBroadcastFusion(
+    elementRows,
+    elementCols,
+    broadcastIterations,
+  );
+  const distributiveOptimized = runWasmDistributiveOptimized(
+    distributiveIterations,
+  );
+  const distributiveMaterialized = runWasmDistributiveMaterialized(
+    distributiveIterations,
+  );
   const transposeAware = runWasmTransposeAware(transposeIterations);
-  const transposeMaterialized = runWasmTransposeMaterialized(transposeIterations);
+  const transposeMaterialized = runWasmTransposeMaterialized(
+    transposeIterations,
+  );
   const chainOptimized = runWasmMatmulChainOptimized(chainIterations);
   const chainLeftAssociated = runWasmMatmulChainLeftAssociated(chainIterations);
-  const linalgWasm = runWasmLinearAlgebra(linalgSize, linalgRhsCols, linalgIterations);
-  const linalgJs = runJsLinearAlgebra(linalgSize, linalgRhsCols, linalgIterations);
-  const choleskyWasm = runWasmCholeskyCache(linalgSize, linalgRhsCols, choleskyIterations);
-  const choleskyJs = runJsCholeskyReference(linalgSize, linalgRhsCols, choleskyIterations);
+  const linalgWasm = runWasmLinearAlgebra(
+    linalgSize,
+    linalgRhsCols,
+    linalgIterations,
+  );
+  const linalgJs = runJsLinearAlgebra(
+    linalgSize,
+    linalgRhsCols,
+    linalgIterations,
+  );
+  const choleskyWasm = runWasmCholeskyCache(
+    linalgSize,
+    linalgRhsCols,
+    choleskyIterations,
+  );
+  const choleskyJs = runJsCholeskyReference(
+    linalgSize,
+    linalgRhsCols,
+    choleskyIterations,
+  );
   const qrWasm = runWasmQrCache(qrRows, qrCols, linalgRhsCols, qrIterations);
   const qrJs = runJsQrReference(qrRows, qrCols, linalgRhsCols, qrIterations);
-  const reductionCached = runWasmReductionCache(elementRows, elementCols, reductionCacheIterations);
-  const reductionFresh = runWasmReductionFresh(elementRows, elementCols, reductionCacheIterations);
-  const inverseMatmulWasm = runWasmInverseMatmul(linalgSize, linalgRhsCols, inverseMatmulIterations);
-  const inverseMatmulJs = runJsInverseMatmul(linalgSize, linalgRhsCols, inverseMatmulIterations);
+  const reductionCached = runWasmReductionCache(
+    elementRows,
+    elementCols,
+    reductionCacheIterations,
+  );
+  const reductionFresh = runWasmReductionFresh(
+    elementRows,
+    elementCols,
+    reductionCacheIterations,
+  );
+  const inverseMatmulWasm = runWasmInverseMatmul(
+    linalgSize,
+    linalgRhsCols,
+    inverseMatmulIterations,
+  );
+  const inverseMatmulJs = runJsInverseMatmul(
+    linalgSize,
+    linalgRhsCols,
+    inverseMatmulIterations,
+  );
 
-  assertClose(elementWasm.checksum, elementJs.checksum, "elementwise checksum", 2e-4);
+  assertClose(
+    elementWasm.checksum,
+    elementJs.checksum,
+    "elementwise checksum",
+    2e-4,
+  );
   assertClose(affineWasm.checksum, affineJs.checksum, "affine checksum", 2e-4);
   assertClose(matmulWasm.checksum, matmulJs.checksum, "matmul checksum", 5e-4);
-  assertClose(diagonalWasm.checksum, diagonalJs.checksum, "diagonal checksum", 1e-3);
-  assertClose(broadcastWasm.checksum, broadcastJs.checksum, "broadcast checksum", 2e-4);
-  assertClose(distributiveOptimized.checksum, distributiveMaterialized.checksum, "distributive checksum", 5e-4);
-  assertClose(transposeAware.checksum, transposeMaterialized.checksum, "transpose-aware checksum", 5e-4);
-  assertClose(chainOptimized.checksum, chainLeftAssociated.checksum, "matmul chain checksum", 5e-4);
-  assertClose(linalgWasm.checksum, linalgJs.checksum, "linear algebra checksum", 1e-3);
-  assertClose(choleskyWasm.checksum, choleskyJs.checksum, "cholesky cache checksum", 5e-3);
+  assertClose(
+    diagonalWasm.checksum,
+    diagonalJs.checksum,
+    "diagonal checksum",
+    1e-3,
+  );
+  assertClose(
+    broadcastWasm.checksum,
+    broadcastJs.checksum,
+    "broadcast checksum",
+    2e-4,
+  );
+  assertClose(
+    distributiveOptimized.checksum,
+    distributiveMaterialized.checksum,
+    "distributive checksum",
+    5e-4,
+  );
+  assertClose(
+    transposeAware.checksum,
+    transposeMaterialized.checksum,
+    "transpose-aware checksum",
+    5e-4,
+  );
+  assertClose(
+    chainOptimized.checksum,
+    chainLeftAssociated.checksum,
+    "matmul chain checksum",
+    5e-4,
+  );
+  assertClose(
+    linalgWasm.checksum,
+    linalgJs.checksum,
+    "linear algebra checksum",
+    1e-3,
+  );
+  assertClose(
+    choleskyWasm.checksum,
+    choleskyJs.checksum,
+    "cholesky cache checksum",
+    5e-3,
+  );
   assertClose(qrWasm.checksum, qrJs.checksum, "qr cache checksum", 5e-2);
-  assertClose(reductionCached.checksum, reductionFresh.checksum, "reduction cache checksum", 1e-6);
-  assertClose(inverseMatmulWasm.checksum, inverseMatmulJs.checksum, "inverse matmul checksum", 1e-3);
+  assertClose(
+    reductionCached.checksum,
+    reductionFresh.checksum,
+    "reduction cache checksum",
+    1e-6,
+  );
+  assertClose(
+    inverseMatmulWasm.checksum,
+    inverseMatmulJs.checksum,
+    "inverse matmul checksum",
+    1e-3,
+  );
 
   const summary = {
     elementwise: {
@@ -789,7 +1030,7 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       wasmMs: Number(elementWasm.elapsedMs.toFixed(3)),
       jsMs: Number(elementJs.elapsedMs.toFixed(3)),
       speedup: Number((elementJs.elapsedMs / elementWasm.elapsedMs).toFixed(3)),
-      checksum: Number(elementWasm.checksum.toFixed(6))
+      checksum: Number(elementWasm.checksum.toFixed(6)),
     },
     affineChain: {
       shape: [elementRows, elementCols],
@@ -797,7 +1038,7 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       wasmMs: Number(affineWasm.elapsedMs.toFixed(3)),
       jsMs: Number(affineJs.elapsedMs.toFixed(3)),
       speedup: Number((affineJs.elapsedMs / affineWasm.elapsedMs).toFixed(3)),
-      checksum: Number(affineWasm.checksum.toFixed(6))
+      checksum: Number(affineWasm.checksum.toFixed(6)),
     },
     matmul: {
       shape: [matmulSize, matmulSize],
@@ -805,7 +1046,7 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       wasmMs: Number(matmulWasm.elapsedMs.toFixed(3)),
       jsMs: Number(matmulJs.elapsedMs.toFixed(3)),
       speedup: Number((matmulJs.elapsedMs / matmulWasm.elapsedMs).toFixed(3)),
-      checksum: Number(matmulWasm.checksum.toFixed(6))
+      checksum: Number(matmulWasm.checksum.toFixed(6)),
     },
     diagonalSpecialization: {
       optimization: "diagonal matmul/inverse/solve specialization",
@@ -814,8 +1055,10 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       iterations: diagonalIterations,
       wasmMs: Number(diagonalWasm.elapsedMs.toFixed(3)),
       jsMs: Number(diagonalJs.elapsedMs.toFixed(3)),
-      speedup: Number((diagonalJs.elapsedMs / diagonalWasm.elapsedMs).toFixed(3)),
-      checksum: Number(diagonalWasm.checksum.toFixed(6))
+      speedup: Number(
+        (diagonalJs.elapsedMs / diagonalWasm.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(diagonalWasm.checksum.toFixed(6)),
     },
     broadcastFusion: {
       optimization: "row/column broadcast fused into elementwise DAG",
@@ -823,8 +1066,10 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       iterations: broadcastIterations,
       wasmMs: Number(broadcastWasm.elapsedMs.toFixed(3)),
       jsMs: Number(broadcastJs.elapsedMs.toFixed(3)),
-      speedup: Number((broadcastJs.elapsedMs / broadcastWasm.elapsedMs).toFixed(3)),
-      checksum: Number(broadcastWasm.checksum.toFixed(6))
+      speedup: Number(
+        (broadcastJs.elapsedMs / broadcastWasm.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(broadcastWasm.checksum.toFixed(6)),
     },
     distributiveGemm: {
       optimization: "A*B + A*C -> A*(B+C)",
@@ -832,8 +1077,11 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       iterations: distributiveIterations,
       optimizedMs: Number(distributiveOptimized.elapsedMs.toFixed(3)),
       materializedMs: Number(distributiveMaterialized.elapsedMs.toFixed(3)),
-      speedup: Number((distributiveMaterialized.elapsedMs / distributiveOptimized.elapsedMs).toFixed(3)),
-      checksum: Number(distributiveOptimized.checksum.toFixed(6))
+      speedup: Number(
+        (distributiveMaterialized.elapsedMs / distributiveOptimized.elapsedMs)
+          .toFixed(3),
+      ),
+      checksum: Number(distributiveOptimized.checksum.toFixed(6)),
     },
     transposeAwareMatmul: {
       optimization: "transpose-aware matmul cost model selection",
@@ -841,16 +1089,20 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       iterations: transposeIterations,
       awareMs: Number(transposeAware.elapsedMs.toFixed(3)),
       materializedMs: Number(transposeMaterialized.elapsedMs.toFixed(3)),
-      speedup: Number((transposeMaterialized.elapsedMs / transposeAware.elapsedMs).toFixed(3)),
-      checksum: Number(transposeAware.checksum.toFixed(6))
+      speedup: Number(
+        (transposeMaterialized.elapsedMs / transposeAware.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(transposeAware.checksum.toFixed(6)),
     },
     matmulChain: {
       shapes: [[256, 8], [8, 256], [256, 8]],
       iterations: chainIterations,
       optimizedMs: Number(chainOptimized.elapsedMs.toFixed(3)),
       leftAssociatedMs: Number(chainLeftAssociated.elapsedMs.toFixed(3)),
-      speedup: Number((chainLeftAssociated.elapsedMs / chainOptimized.elapsedMs).toFixed(3)),
-      checksum: Number(chainOptimized.checksum.toFixed(6))
+      speedup: Number(
+        (chainLeftAssociated.elapsedMs / chainOptimized.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(chainOptimized.checksum.toFixed(6)),
     },
     linearAlgebra: {
       optimization: "LU cache shared by determinant/inverse/solve",
@@ -860,17 +1112,20 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       wasmMs: Number(linalgWasm.elapsedMs.toFixed(3)),
       jsMs: Number(linalgJs.elapsedMs.toFixed(3)),
       speedup: Number((linalgJs.elapsedMs / linalgWasm.elapsedMs).toFixed(3)),
-      checksum: Number(linalgWasm.checksum.toFixed(6))
+      checksum: Number(linalgWasm.checksum.toFixed(6)),
     },
     choleskyCache: {
-      optimization: "Gram/SPD Cholesky cache shared by determinant/logDet/inverse/solve",
+      optimization:
+        "Gram/SPD Cholesky cache shared by determinant/logDet/inverse/solve",
       shape: [linalgSize, linalgSize],
       rhsCols: linalgRhsCols,
       iterations: choleskyIterations,
       wasmMs: Number(choleskyWasm.elapsedMs.toFixed(3)),
       jsMs: Number(choleskyJs.elapsedMs.toFixed(3)),
-      speedup: Number((choleskyJs.elapsedMs / choleskyWasm.elapsedMs).toFixed(3)),
-      checksum: Number(choleskyWasm.checksum.toFixed(6))
+      speedup: Number(
+        (choleskyJs.elapsedMs / choleskyWasm.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(choleskyWasm.checksum.toFixed(6)),
     },
     qrCache: {
       optimization: "QR cache shared by rank and leastSquares",
@@ -880,7 +1135,7 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       wasmMs: Number(qrWasm.elapsedMs.toFixed(3)),
       jsMs: Number(qrJs.elapsedMs.toFixed(3)),
       speedup: Number((qrJs.elapsedMs / qrWasm.elapsedMs).toFixed(3)),
-      checksum: Number(qrWasm.checksum.toFixed(6))
+      checksum: Number(qrWasm.checksum.toFixed(6)),
     },
     reductionCache: {
       optimization: "expression result and scalar reduction cache reuse",
@@ -888,8 +1143,10 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       iterations: reductionCacheIterations,
       cachedMs: Number(reductionCached.elapsedMs.toFixed(3)),
       freshMs: Number(reductionFresh.elapsedMs.toFixed(3)),
-      speedup: Number((reductionFresh.elapsedMs / reductionCached.elapsedMs).toFixed(3)),
-      checksum: Number(reductionCached.checksum.toFixed(6))
+      speedup: Number(
+        (reductionFresh.elapsedMs / reductionCached.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(reductionCached.checksum.toFixed(6)),
     },
     inverseMatmul: {
       shape: [linalgSize, linalgSize],
@@ -897,9 +1154,11 @@ test("E2E benchmark: matrix pipelines are measurable and checksum-stable", { tim
       iterations: inverseMatmulIterations,
       wasmMs: Number(inverseMatmulWasm.elapsedMs.toFixed(3)),
       jsMs: Number(inverseMatmulJs.elapsedMs.toFixed(3)),
-      speedup: Number((inverseMatmulJs.elapsedMs / inverseMatmulWasm.elapsedMs).toFixed(3)),
-      checksum: Number(inverseMatmulWasm.checksum.toFixed(6))
-    }
+      speedup: Number(
+        (inverseMatmulJs.elapsedMs / inverseMatmulWasm.elapsedMs).toFixed(3),
+      ),
+      checksum: Number(inverseMatmulWasm.checksum.toFixed(6)),
+    },
   };
 
   console.log(`[wasmatrix:e2e-benchmark] ${JSON.stringify(summary)}`);

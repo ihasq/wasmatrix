@@ -10,7 +10,7 @@ function normalizePath(pathname) {
 export default function NavbarWrapper(props) {
   const { pathname } = useLocation();
   const {
-    i18n: { currentLocale, defaultLocale }
+    i18n: { currentLocale, defaultLocale },
   } = useDocusaurusContext();
   const currentPath = normalizePath(pathname);
   const homePath = currentLocale === defaultLocale ? "/" : `/${currentLocale}`;

@@ -22,17 +22,23 @@ function extractCommentBlock(source, beginMarker, endMarker, label) {
 }
 
 test("component WIT is generated from the AssemblyScript source of truth", () => {
-  const source = readFileSync(new URL("../wasmatrix.ts", import.meta.url), "utf8");
-  const generated = readFileSync(new URL("../wit/wasmatrix.wit", import.meta.url), "utf8");
+  const source = readFileSync(
+    new URL("../wasmatrix.ts", import.meta.url),
+    "utf8",
+  );
+  const generated = readFileSync(
+    new URL("../wit/wasmatrix.wit", import.meta.url),
+    "utf8",
+  );
   const expected = [
     "// Generated from wasmatrix.ts. Do not edit directly.",
     extractCommentBlock(
       source,
       "// @wasmatrix-component-wit begin",
       "// @wasmatrix-component-wit end",
-      "WIT"
+      "WIT",
     ),
-    ""
+    "",
   ].join("\n");
 
   assert.equal(generated, expected);
@@ -41,17 +47,23 @@ test("component WIT is generated from the AssemblyScript source of truth", () =>
 });
 
 test("JavaScript adapter is generated from the AssemblyScript source of truth", () => {
-  const source = readFileSync(new URL("../wasmatrix.ts", import.meta.url), "utf8");
-  const generated = readFileSync(new URL("../build/generated/index.ts", import.meta.url), "utf8");
+  const source = readFileSync(
+    new URL("../wasmatrix.ts", import.meta.url),
+    "utf8",
+  );
+  const generated = readFileSync(
+    new URL("../build/generated/index.ts", import.meta.url),
+    "utf8",
+  );
   const expected = [
     "// Generated from wasmatrix.ts. Do not edit directly.",
     extractCommentBlock(
       source,
       "// @wasmatrix-js-adapter begin",
       "// @wasmatrix-js-adapter end",
-      "JavaScript adapter"
+      "JavaScript adapter",
     ),
-    ""
+    "",
   ].join("\n");
 
   assert.equal(generated, expected);

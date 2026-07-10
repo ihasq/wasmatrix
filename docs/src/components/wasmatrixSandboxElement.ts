@@ -1,6 +1,14 @@
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
 import { javascript } from "@codemirror/lang-javascript";
-import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import {
+  defaultHighlightStyle,
+  syntaxHighlighting,
+} from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import siteConfig from "@generated/docusaurus.config";
 import {
@@ -12,7 +20,7 @@ import {
   highlightActiveLineGutter,
   keymap,
   lineNumbers,
-  rectangularSelection
+  rectangularSelection,
 } from "@codemirror/view";
 
 const DEFAULT_CODE = `const a = Matrix.from(2, 2, [
@@ -27,11 +35,15 @@ console.log("det(A)", a.determinant());
 console.table(identity.toArray());`;
 
 const DEFAULT_RUNTIME_PATH = "wasmatrix-runtime/index.js";
-const MATRIX_MODULE_CACHE_KEY = Symbol.for("wasmatrix.docs.sandbox.matrixModuleCache");
+const MATRIX_MODULE_CACHE_KEY = Symbol.for(
+  "wasmatrix.docs.sandbox.matrixModuleCache",
+);
 
 function formatValue(value) {
   if (value instanceof Float32Array) {
-    return `[${Array.from(value).map((item) => Number(item.toFixed(6))).join(", ")}]`;
+    return `[${
+      Array.from(value).map((item) => Number(item.toFixed(6))).join(", ")
+    }]`;
   }
   if (Array.isArray(value) || (value && typeof value === "object")) {
     try {
@@ -69,65 +81,68 @@ function preloadMatrixModule(url = defaultPackageUrl()) {
   return importMatrixModule(url);
 }
 
-if (typeof window !== "undefined" && typeof HTMLElement !== "undefined" && !window.customElements.get("wasmatrix-sandbox")) {
-preloadMatrixModule().catch(() => {
-  // The sandbox will surface the concrete loading error when the user runs code.
-});
+if (
+  typeof window !== "undefined" && typeof HTMLElement !== "undefined" &&
+  !window.customElements.get("wasmatrix-sandbox")
+) {
+  preloadMatrixModule().catch(() => {
+    // The sandbox will surface the concrete loading error when the user runs code.
+  });
 
-class WasmatrixSandbox extends HTMLElement {
-  static observedAttributes = ["code", "package-url"];
+  class WasmatrixSandbox extends HTMLElement {
+    static observedAttributes = ["code", "package-url"];
 
-  #editor = null;
-  #consoleEl = null;
-  #runButton = null;
-  #statusEl = null;
+    #editor = null;
+    #consoleEl = null;
+    #runButton = null;
+    #statusEl = null;
 
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-  }
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+    }
 
-  connectedCallback() {
-    if (this.#editor != null) return;
-    this.#render();
-  }
+    connectedCallback() {
+      if (this.#editor != null) return;
+      this.#render();
+    }
 
-  disconnectedCallback() {
-    this.#editor?.destroy();
-    this.#editor = null;
-  }
+    disconnectedCallback() {
+      this.#editor?.destroy();
+      this.#editor = null;
+    }
 
-  attributeChangedCallback() {
-    if (this.#editor == null) return;
-    const code = this.#initialCode();
-    this.#editor.dispatch({
-      changes: {
-        from: 0,
-        to: this.#editor.state.doc.length,
-        insert: code
-      }
-    });
-  }
+    attributeChangedCallback() {
+      if (this.#editor == null) return;
+      const code = this.#initialCode();
+      this.#editor.dispatch({
+        changes: {
+          from: 0,
+          to: this.#editor.state.doc.length,
+          insert: code,
+        },
+      });
+    }
 
-  #initialCode() {
-    const attr = this.getAttribute("code");
-    if (attr != null && attr.trim() !== "") return attr;
-    const text = this.textContent?.trim();
-    return text || DEFAULT_CODE;
-  }
+    #initialCode() {
+      const attr = this.getAttribute("code");
+      if (attr != null && attr.trim() !== "") return attr;
+      const text = this.textContent?.trim();
+      return text || DEFAULT_CODE;
+    }
 
-  #packageUrl() {
-    const override = this.getAttribute("package-url");
-    if (override != null && override.trim() !== "") return override;
-    return defaultPackageUrl();
-  }
+    #packageUrl() {
+      const override = this.getAttribute("package-url");
+      if (override != null && override.trim() !== "") return override;
+      return defaultPackageUrl();
+    }
 
-  #render() {
-    preloadMatrixModule(this.#packageUrl()).catch(() => {
-      // Keep failed preloads quiet until an explicit sandbox run can report them.
-    });
+    #render() {
+      preloadMatrixModule(this.#packageUrl()).catch(() => {
+        // Keep failed preloads quiet until an explicit sandbox run can report them.
+      });
 
-    this.shadowRoot.innerHTML = `
+      this.shadowRoot.innerHTML = `
       <style>
         :host {
           display: block;
@@ -285,99 +300,100 @@ class WasmatrixSandbox extends HTMLElement {
       </section>
     `;
 
-    const editorHost = this.shadowRoot.querySelector(".editor");
-    this.#consoleEl = this.shadowRoot.querySelector(".consoleOutput");
-    this.#runButton = this.shadowRoot.querySelector("button");
-    this.#statusEl = this.shadowRoot.querySelector(".status");
+      const editorHost = this.shadowRoot.querySelector(".editor");
+      this.#consoleEl = this.shadowRoot.querySelector(".consoleOutput");
+      this.#runButton = this.shadowRoot.querySelector("button");
+      this.#statusEl = this.shadowRoot.querySelector(".status");
 
-    this.#editor = new EditorView({
-      parent: editorHost,
-      state: EditorState.create({
-        doc: this.#initialCode(),
-        extensions: [
-          lineNumbers(),
-          highlightActiveLineGutter(),
-          history(),
-          drawSelection(),
-          dropCursor(),
-          rectangularSelection(),
-          crosshairCursor(),
-          highlightActiveLine(),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          javascript(),
-          keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
-          EditorView.lineWrapping,
-          EditorView.theme({
-            "&": {
-              backgroundColor: "var(--ifm-background-surface-color, #fff)"
-            },
-            ".cm-content": {
-              padding: "0.75rem 0"
-            },
-            ".cm-gutters": {
-              backgroundColor: "var(--ifm-background-surface-color, #fff)",
-              borderRight: "1px solid var(--ifm-color-emphasis-200, #d0d7de)"
-            }
-          })
-        ]
-      })
-    });
+      this.#editor = new EditorView({
+        parent: editorHost,
+        state: EditorState.create({
+          doc: this.#initialCode(),
+          extensions: [
+            lineNumbers(),
+            highlightActiveLineGutter(),
+            history(),
+            drawSelection(),
+            dropCursor(),
+            rectangularSelection(),
+            crosshairCursor(),
+            highlightActiveLine(),
+            syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+            javascript(),
+            keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
+            EditorView.lineWrapping,
+            EditorView.theme({
+              "&": {
+                backgroundColor: "var(--ifm-background-surface-color, #fff)",
+              },
+              ".cm-content": {
+                padding: "0.75rem 0",
+              },
+              ".cm-gutters": {
+                backgroundColor: "var(--ifm-background-surface-color, #fff)",
+                borderRight: "1px solid var(--ifm-color-emphasis-200, #d0d7de)",
+              },
+            }),
+          ],
+        }),
+      });
 
-    this.#runButton.addEventListener("click", () => {
-      void this.#run();
-    });
-  }
+      this.#runButton.addEventListener("click", () => {
+        void this.#run();
+      });
+    }
 
-  #write(kind, values) {
-    const line = document.createElement("div");
-    line.className = `logLine ${kind}`;
-    line.textContent = values.map(formatValue).join(" ");
-    this.#consoleEl.append(line);
-    this.#consoleEl.scrollTop = this.#consoleEl.scrollHeight;
-  }
+    #write(kind, values) {
+      const line = document.createElement("div");
+      line.className = `logLine ${kind}`;
+      line.textContent = values.map(formatValue).join(" ");
+      this.#consoleEl.append(line);
+      this.#consoleEl.scrollTop = this.#consoleEl.scrollHeight;
+    }
 
-  #clearConsole() {
-    this.#consoleEl.textContent = "";
-  }
+    #clearConsole() {
+      this.#consoleEl.textContent = "";
+    }
 
-  #setStatus(value) {
-    this.#statusEl.textContent = value;
-  }
+    #setStatus(value) {
+      this.#statusEl.textContent = value;
+    }
 
-  async #loadMatrix() {
-    const mod = await importMatrixModule(this.#packageUrl());
-    return mod.default ?? mod.Matrix;
-  }
+    async #loadMatrix() {
+      const mod = await importMatrixModule(this.#packageUrl());
+      return mod.default ?? mod.Matrix;
+    }
 
-  async #run() {
-    this.#clearConsole();
-    this.#setStatus("Loading WASM");
-    this.#runButton.disabled = true;
+    async #run() {
+      this.#clearConsole();
+      this.#setStatus("Loading WASM");
+      this.#runButton.disabled = true;
 
-    const sandboxConsole = {
-      log: (...values) => this.#write("log", values),
-      info: (...values) => this.#write("log", values),
-      warn: (...values) => this.#write("warn", values),
-      error: (...values) => this.#write("error", values),
-      table: (value) => this.#write("log", [value])
-    };
+      const sandboxConsole = {
+        log: (...values) => this.#write("log", values),
+        info: (...values) => this.#write("log", values),
+        warn: (...values) => this.#write("warn", values),
+        error: (...values) => this.#write("error", values),
+        table: (value) => this.#write("log", [value]),
+      };
 
-    try {
-      const Matrix = await this.#loadMatrix();
-      this.#setStatus("Running");
-      const source = this.#editor.state.doc.toString();
-      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-      const fn = new AsyncFunction("Matrix", "console", source);
-      await fn(Matrix, sandboxConsole);
-      this.#setStatus("Done");
-    } catch (error) {
-      this.#write("error", [error?.stack || error?.message || error]);
-      this.#setStatus("Error");
-    } finally {
-      this.#runButton.disabled = false;
+      try {
+        const Matrix = await this.#loadMatrix();
+        this.#setStatus("Running");
+        const source = this.#editor.state.doc.toString();
+        const AsyncFunction =
+          Object.getPrototypeOf(async function () {}).constructor;
+        const fn = new AsyncFunction("Matrix", "console", source);
+        await fn(Matrix, sandboxConsole);
+        this.#setStatus("Done");
+      } catch (error) {
+        this.#write("error", [error?.stack || error?.message || error]);
+        this.#setStatus("Error");
+      } finally {
+        this.#runButton.disabled = false;
+      }
     }
   }
-}
 
   window.customElements.define("wasmatrix-sandbox", WasmatrixSandbox);
 }

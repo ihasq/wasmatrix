@@ -17,7 +17,7 @@ await Deno.mkdir("coverage", { recursive: true });
 
 const testFiles: string[] = [];
 for await (const entry of Deno.readDir("test")) {
-  if (entry.isFile && entry.name.endsWith(".test.mjs")) {
+  if (entry.isFile && entry.name.endsWith(".test.ts")) {
     testFiles.push(`test/${entry.name}`);
   }
 }

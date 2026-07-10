@@ -4,7 +4,7 @@ import Layout from "@theme/Layout";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import clsx from "clsx";
 import { useEffect, useRef } from "react";
-import siteContent from "../i18n/siteContent.cjs";
+import siteContent from "../i18n/siteContent.ts";
 import styles from "./index.module.css";
 
 const { getContentForLocale, homeContent } = siteContent;
@@ -18,7 +18,7 @@ const SEO_KEYWORDS = [
   "AssemblyScript",
   "TypeScript matrix library",
   "JavaScript linear algebra",
-  "WASM matrix operations"
+  "WASM matrix operations",
 ];
 const MATRIX_TILE_COLUMNS = 16;
 const MATRIX_TILE_ROWS = 16;
@@ -39,16 +39,16 @@ const MATRIX_CELLS = Array.from({ length: MATRIX_CELL_COUNT }, (_, index) => {
     x: column * MATRIX_CELL_WIDTH + MATRIX_CELL_WIDTH / 2,
     y: row * MATRIX_CELL_HEIGHT + MATRIX_CELL_HEIGHT * 0.66,
     value: matrixInteger(index + 1),
-    strong: (index + row) % 9 === 0
+    strong: (index + row) % 9 === 0,
   };
 });
 const MATRIX_VERTICAL_LINES = Array.from(
   { length: MATRIX_TILE_COLUMNS + 1 },
-  (_, index) => index * MATRIX_CELL_WIDTH
+  (_, index) => index * MATRIX_CELL_WIDTH,
 );
 const MATRIX_HORIZONTAL_LINES = Array.from(
   { length: MATRIX_TILE_ROWS + 1 },
-  (_, index) => index * MATRIX_CELL_HEIGHT
+  (_, index) => index * MATRIX_CELL_HEIGHT,
 );
 
 function matrixInteger(seed) {
@@ -98,7 +98,8 @@ function MatrixProcessingBackdrop() {
       return undefined;
     }
 
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    const reducedMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
     if (reducedMotion) {
       return undefined;
     }
@@ -109,19 +110,29 @@ function MatrixProcessingBackdrop() {
       randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
       return randomState;
     };
-    const nextInteger = () => String((nextRandom() % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
+    const nextInteger = () =>
+      String((nextRandom() % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
     const nextIntegerExcept = (previous) => {
       let next = nextInteger();
       if (next === previous) {
-        next = String(((Number(next) + MATRIX_VALUE_OFFSET + 1) % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
+        next = String(
+          ((Number(next) + MATRIX_VALUE_OFFSET + 1) % MATRIX_VALUE_SPAN) -
+            MATRIX_VALUE_OFFSET,
+        );
       }
       return next;
     };
-    const updateOrder = Array.from({ length: MATRIX_CELL_COUNT }, (_, index) => index);
+    const updateOrder = Array.from(
+      { length: MATRIX_CELL_COUNT },
+      (_, index) => index,
+    );
     const shuffleUpdateOrder = () => {
       for (let index = updateOrder.length - 1; index > 0; index -= 1) {
         const swapIndex = nextRandom() % (index + 1);
-        [updateOrder[index], updateOrder[swapIndex]] = [updateOrder[swapIndex], updateOrder[index]];
+        [updateOrder[index], updateOrder[swapIndex]] = [
+          updateOrder[swapIndex],
+          updateOrder[index],
+        ];
       }
     };
     let updateCursor = MATRIX_CELL_COUNT;
@@ -141,7 +152,10 @@ function MatrixProcessingBackdrop() {
     };
     const animate = (timestamp) => {
       const phase = (timestamp * 0.032) % MATRIX_TILE_WIDTH;
-      pattern.setAttribute("patternTransform", `translate(${-phase} ${phase * 0.42})`);
+      pattern.setAttribute(
+        "patternTransform",
+        `translate(${-phase} ${phase * 0.42})`,
+      );
       updateValues();
       frameId = window.requestAnimationFrame(animate);
     };
@@ -197,7 +211,7 @@ function MatrixProcessingBackdrop() {
               <text
                 className={clsx(
                   styles.matrixNumber,
-                  cell.strong && styles.matrixNumberStrong
+                  cell.strong && styles.matrixNumberStrong,
                 )}
                 key={cell.index}
                 ref={(node) => {
@@ -228,11 +242,13 @@ function MatrixProcessingBackdrop() {
 export default function Home() {
   const {
     i18n: { currentLocale, defaultLocale },
-    siteConfig
+    siteConfig,
   } = useDocusaurusContext();
   const content = getContentForLocale(homeContent, currentLocale);
   const siteUrl = siteConfig.url.replace(/\/+$/, "");
-  const pageUrl = currentLocale === defaultLocale ? siteUrl : `${siteUrl}/${currentLocale}`;
+  const pageUrl = currentLocale === defaultLocale
+    ? siteUrl
+    : `${siteUrl}/${currentLocale}`;
   const socialImageUrl = `${siteUrl}/img/social-card.png`;
   const seoTitle = `${content.title} - WebAssembly SIMD matrix operations`;
   const seoDescription = content.lede || content.description;
@@ -248,7 +264,7 @@ export default function Home() {
       programmingLanguage: ["TypeScript", "AssemblyScript"],
       runtimePlatform: ["WebAssembly", "Node.js", "Deno", "Bun", "Web browser"],
       license: "https://opensource.org/licenses/MIT",
-      keywords: SEO_KEYWORDS.join(", ")
+      keywords: SEO_KEYWORDS.join(", "),
     },
     {
       "@context": "https://schema.org",
@@ -263,8 +279,8 @@ export default function Home() {
       offers: {
         "@type": "Offer",
         price: "0",
-        priceCurrency: "USD"
-      }
+        priceCurrency: "USD",
+      },
     },
     {
       "@context": "https://schema.org",
@@ -272,8 +288,8 @@ export default function Home() {
       name: "WASMatrix Docs",
       url: siteUrl,
       description: content.description,
-      inLanguage: currentLocale
-    }
+      inLanguage: currentLocale,
+    },
   ];
 
   return (
@@ -310,10 +326,16 @@ export default function Home() {
               {content.lede}
             </p>
             <div className={styles.actions}>
-              <Link className="button button--primary button--lg" to="/docs/getting-started">
+              <Link
+                className="button button--primary button--lg"
+                to="/docs/getting-started"
+              >
                 {content.getStarted}
               </Link>
-              <Link className="button button--secondary button--lg" to="/docs/api-guide">
+              <Link
+                className="button button--secondary button--lg"
+                to="/docs/api-guide"
+              >
                 {content.apiGuide}
               </Link>
             </div>
@@ -365,7 +387,8 @@ const identity = a.matmul(inverse);
 
 console.log("det(A)", a.determinant());
 console.table(identity.toArray());`}
-              ></wasmatrix-sandbox>
+              >
+              </wasmatrix-sandbox>
             </div>
           </div>
         </section>

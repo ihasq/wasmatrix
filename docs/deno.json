@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["deno.ns", "dom", "dom.iterable", "esnext"],
     "strict": false
   },
   "nodeModulesDir": "auto",

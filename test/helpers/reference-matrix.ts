@@ -2,7 +2,9 @@ const F32_EPSILON = 1e-6;
 
 function assertShape(a, b, operation) {
   if (a.rows !== b.rows || a.cols !== b.cols) {
-    throw new RangeError(`${operation} shape mismatch: ${a.rows}x${a.cols} !== ${b.rows}x${b.cols}`);
+    throw new RangeError(
+      `${operation} shape mismatch: ${a.rows}x${a.cols} !== ${b.rows}x${b.cols}`,
+    );
   }
 }
 
@@ -20,7 +22,12 @@ function workArray(matrix) {
   return Array.from(matrix.data, Number);
 }
 
-export function makeData(rows, cols, seed, options = {}) {
+export function makeData(
+  rows,
+  cols,
+  seed,
+  options: { min?: number; max?: number } = {},
+) {
   const min = options.min ?? -1;
   const max = options.max ?? 1;
   const data = new Float32Array(rows * cols);
@@ -36,7 +43,9 @@ export function makeData(rows, cols, seed, options = {}) {
 
 export function refMatrix(rows, cols, values) {
   if (values.length !== rows * cols) {
-    throw new RangeError(`data length ${values.length} does not match ${rows}x${cols}`);
+    throw new RangeError(
+      `data length ${values.length} does not match ${rows}x${cols}`,
+    );
   }
   return { rows, cols, data: Float32Array.from(values) };
 }
@@ -100,7 +109,8 @@ export const refAbs = (a) => refMap(a, Math.abs);
 export const refSqrt = (a) => refMap(a, Math.sqrt);
 export const refFloor = (a) => refMap(a, Math.floor);
 export const refCeil = (a) => refMap(a, Math.ceil);
-export const refClamp = (a, minValue, maxValue) => refMap(a, (x) => Math.min(Math.max(x, minValue), maxValue));
+export const refClamp = (a, minValue, maxValue) =>
+  refMap(a, (x) => Math.min(Math.max(x, minValue), maxValue));
 
 export function refTranspose(a) {
   const data = new Float32Array(a.data.length);
@@ -114,7 +124,9 @@ export function refTranspose(a) {
 
 export function refMatmul(a, b) {
   if (a.cols !== b.rows) {
-    throw new RangeError(`matmul shape mismatch: ${a.rows}x${a.cols} cannot multiply ${b.rows}x${b.cols}`);
+    throw new RangeError(
+      `matmul shape mismatch: ${a.rows}x${a.cols} cannot multiply ${b.rows}x${b.cols}`,
+    );
   }
 
   const data = new Float32Array(a.rows * b.cols);
@@ -132,7 +144,9 @@ export function refMatmul(a, b) {
 
 export function refMatvec(a, vector) {
   if (vector.length !== a.cols) {
-    throw new RangeError(`vector length ${vector.length} must match matrix columns ${a.cols}`);
+    throw new RangeError(
+      `vector length ${vector.length} must match matrix columns ${a.cols}`,
+    );
   }
   const data = new Float32Array(a.rows);
   for (let r = 0; r < a.rows; r++) {
@@ -157,7 +171,9 @@ export function refOuter(a, b) {
 
 export function refDot(a, b) {
   if (a.data.length !== b.data.length) {
-    throw new RangeError(`dot length mismatch: ${a.data.length} !== ${b.data.length}`);
+    throw new RangeError(
+      `dot length mismatch: ${a.data.length} !== ${b.data.length}`,
+    );
   }
   let total = 0;
   for (let i = 0; i < a.data.length; i++) {

@@ -27,15 +27,15 @@ import {
   refSubtractScalar,
   refSum,
   refTrace,
-  refTranspose
-} from "./helpers/reference-matrix.mjs";
+  refTranspose,
+} from "./helpers/reference-matrix.ts";
 
 function assertArrayAlmostEqual(actual, expected, epsilon = 1e-4) {
   assert.equal(actual.length, expected.length);
   for (let i = 0; i < actual.length; i++) {
     assert.ok(
       Math.abs(actual[i] - expected[i]) <= epsilon,
-      `index ${i}: expected ${expected[i]}, got ${actual[i]}`
+      `index ${i}: expected ${expected[i]}, got ${actual[i]}`,
     );
   }
 }
@@ -68,13 +68,13 @@ test("E2E transparency: chained elementwise workflow matches JS reference", () =
       refClamp(
         refHadamard(
           refSubtractScalar(refAdd(refA, refB), 0.25),
-          refAddScalar(refAbs(refB), 0.5)
+          refAddScalar(refAbs(refB), 0.5),
         ),
         -2,
-        2
+        2,
       ),
-      2.25
-    )
+      2.25,
+    ),
   );
 
   assertMatrixAlmostEqual(actual, expected);
@@ -104,16 +104,29 @@ test("E2E transparency: matrix workflow matches JS reference", () => {
     refTranspose(
       refAdd(
         refMatmul(refAddScalar(refLeft, 0.5), refSubtractScalar(refRight, 0.2)),
-        refScale(refMatrix(leftRows, rightCols, new Float32Array(leftRows * rightCols).fill(1)), 0.125)
-      )
+        refScale(
+          refMatrix(
+            leftRows,
+            rightCols,
+            new Float32Array(leftRows * rightCols).fill(1),
+          ),
+          0.125,
+        ),
+      ),
     ),
-    -0.75
+    -0.75,
   );
 
   assertMatrixAlmostEqual(actual, expected, 2e-4);
   assertArrayAlmostEqual(left.matvec(vector), refMatvec(refLeft, vector), 2e-4);
-  assert.ok(Math.abs(left.dot(refLeft.data) - refSum(refHadamard(refLeft, refLeft))) < 2e-4);
-  assertMatrixAlmostEqual(Matrix.outer(vector, makeData(3, 1, 0x299f31d0)), refOuter(vector, makeData(3, 1, 0x299f31d0)));
+  assert.ok(
+    Math.abs(left.dot(refLeft.data) - refSum(refHadamard(refLeft, refLeft))) <
+      2e-4,
+  );
+  assertMatrixAlmostEqual(
+    Matrix.outer(vector, makeData(3, 1, 0x299f31d0)),
+    refOuter(vector, makeData(3, 1, 0x299f31d0)),
+  );
 });
 
 test("E2E transparency: reductions and readback surfaces match JS reference", () => {
@@ -125,7 +138,9 @@ test("E2E transparency: reductions and readback surfaces match JS reference", ()
   assert.equal(actual.minValue(), refMinValue(expected));
   assert.equal(actual.maxValue(), refMaxValue(expected));
   assert.ok(Math.abs(actual.trace() - refTrace(expected)) < 1e-4);
-  assert.ok(Math.abs(actual.frobeniusNorm() - refFrobeniusNorm(expected)) < 1e-4);
+  assert.ok(
+    Math.abs(actual.frobeniusNorm() - refFrobeniusNorm(expected)) < 1e-4,
+  );
   assertArrayAlmostEqual(actual.diagonal(), refDiagonal(expected));
 
   const snapshot = actual.data;
@@ -136,22 +151,50 @@ test("E2E transparency: reductions and readback surfaces match JS reference", ()
 
 test("E2E transparency: linear algebra workflow matches JS reference", () => {
   const aData = new Float32Array([
-    8, 1, -2, 0.5,
-    2, 7, 1, -1,
-    -1, 0.25, 6, 2,
-    0.5, -1.5, 1, 5
+    8,
+    1,
+    -2,
+    0.5,
+    2,
+    7,
+    1,
+    -1,
+    -1,
+    0.25,
+    6,
+    2,
+    0.5,
+    -1.5,
+    1,
+    5,
   ]);
   const rhsData = new Float32Array([
-    3, -2,
-    4, 1,
-    -1, 5,
-    2, 0.5
+    3,
+    -2,
+    4,
+    1,
+    -1,
+    5,
+    2,
+    0.5,
   ]);
   const dependentData = new Float32Array([
-    1, 2, 3, 4,
-    2, 4, 6, 8,
-    0, 1, 0, 1,
-    1, 3, 3, 5
+    1,
+    2,
+    3,
+    4,
+    2,
+    4,
+    6,
+    8,
+    0,
+    1,
+    0,
+    1,
+    1,
+    3,
+    3,
+    5,
   ]);
 
   const a = Matrix.from(4, 4, aData);

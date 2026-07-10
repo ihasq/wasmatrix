@@ -76,7 +76,7 @@ of falling back to a slower scalar implementation.
 
 ## Run Your First Program
 
-Create a file named `hello.mjs`:
+Create a file named `hello.ts`:
 
 ```js
 import Matrix from "wasmatrix";
@@ -100,19 +100,19 @@ console.log("solution", x.toArray());
 console.log("check", A.matmul(x).equalsApprox(b));
 ```
 
-Run it with Node:
+Run it with Deno:
 
 ```bash
-node hello.mjs
+deno run --allow-read hello.ts
 ```
 
-The same shape works in Bun and Deno:
+The same source works in Bun:
 
 ```bash
-bun hello.mjs
-deno run --allow-read hello.mjs
+bun hello.ts
 ```
 
+Node projects can run the same source through their normal TypeScript toolchain.
 The important detail is that `solve`, `determinant`, and `matmul` run inside the
 WASM runtime. JavaScript only receives the final values printed by `toArray()`,
 `determinant()`, and `equalsApprox()`.

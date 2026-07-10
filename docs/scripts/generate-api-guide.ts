@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import siteContent from "../src/i18n/siteContent.cjs";
+import siteContent from "../src/i18n/siteContent.ts";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptsDir, "..");
@@ -497,10 +497,12 @@ for (const { code } of LOCALES) {
 
 const formatter = await new Deno.Command(Deno.execPath(), {
   args: ["fmt", ...generatedPaths],
-  stdout: "null",
-  stderr: "inherit",
+  stdout: "piped",
+  stderr: "piped",
 }).output();
 
 if (!formatter.success) {
+  await Deno.stderr.write(formatter.stdout);
+  await Deno.stderr.write(formatter.stderr);
   throw new Error(`deno fmt failed with ${formatter.code}`);
 }

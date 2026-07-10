@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import siteContent from "../src/i18n/siteContent.cjs";
+import siteContent from "../src/i18n/siteContent.ts";
 
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptsDir, "..");
@@ -92,9 +92,8 @@ console.log("check", A.matmul(x).equalsApprox(b));
 \`\`\`
 
 \`\`\`bash
-node hello.mjs
-bun hello.mjs
-deno run --allow-read hello.mjs
+deno run --allow-read hello.ts
+bun hello.ts
 \`\`\`
 
 ${content.firstProgramResult}
