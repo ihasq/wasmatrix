@@ -1,5 +1,8 @@
 # WASMatrix
 
+[![npm](https://img.shields.io/npm/v/wasmatrix.svg)](https://www.npmjs.com/package/wasmatrix)
+[![codecov](https://codecov.io/gh/ihasq/wasmatrix/branch/main/graph/badge.svg)](https://codecov.io/gh/ihasq/wasmatrix)
+
 Fast matrix operations for JavaScript runtimes, powered by AssemblyScript and WebAssembly SIMD.
 
 WASMatrix gives you a small TypeScript API on top of a row-major `Float32` WASM core. It is built for projects that want real linear algebra without turning every operation into a JavaScript heap round trip.
@@ -205,13 +208,14 @@ When bundling, make sure your tool treats `new URL("./wasmatrix.wasm", import.me
 npm install
 npm run build
 npm test
+npm run coverage
 npm run test:e2e
 npm run benchmark
 ```
 
 `npm run build` compiles `assembly/index.ts` with SIMD enabled, emits `build/wasmatrix.wasm` and `build/wasmatrix.wat`, compiles `src/index.ts` to `dist/index.js`, and copies the WASM binary to `dist/wasmatrix.wasm`.
 
-`npm test` runs unit coverage and E2E transparency tests. `npm run benchmark` runs the E2E benchmark suite and prints a JSON summary with timings, speedups, and checksums.
+`npm test` runs unit tests and E2E transparency tests. `npm run coverage` writes `coverage/lcov.info` for Codecov. `npm run benchmark` runs the E2E benchmark suite and prints a JSON summary with timings, speedups, and checksums.
 
 Benchmark sizes can be adjusted with environment variables such as `WASMATRIX_BENCH_MATMUL_SIZE`, `WASMATRIX_BENCH_ELEMENT_ROWS`, `WASMATRIX_BENCH_ELEMENT_COLS`, and `WASMATRIX_BENCH_LINALG_SIZE`.
 
