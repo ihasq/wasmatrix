@@ -1,8 +1,12 @@
 import Link from "@docusaurus/Link";
 import Layout from "@theme/Layout";
+import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import clsx from "clsx";
 import { useEffect, useMemo, useRef } from "react";
+import siteContent from "../i18n/siteContent.cjs";
 import styles from "./index.module.css";
+
+const { getContentForLocale, homeContent } = siteContent;
 
 const MATRIX_COLUMNS = 32;
 const MATRIX_ROWS = 22;
@@ -10,30 +14,6 @@ const MATRIX_CELL_COUNT = MATRIX_COLUMNS * MATRIX_ROWS;
 const MATRIX_LAYER_SALTS = [3];
 const MATRIX_TOTAL_CELLS = MATRIX_CELL_COUNT * MATRIX_LAYER_SALTS.length;
 const MATRIX_FRAME_UPDATE_COUNT = Math.ceil(MATRIX_TOTAL_CELLS / 3);
-
-const features = [
-  {
-    title: "WASM memory first",
-    body: "Matrix buffers stay in WebAssembly memory until an explicit readback asks for JavaScript values."
-  },
-  {
-    title: "Algebra-aware execution",
-    body: "Lazy elementwise DAGs, transpose views, structure tags, and factorization caches reduce avoidable passes."
-  },
-  {
-    title: "Browser and server",
-    body: "The ESM package ships JavaScript and WASM separately, using a bundler-friendly asset URL."
-  }
-];
-
-const operations = [
-  "elementwise fusion",
-  "matrix multiplication",
-  "LU / Cholesky / QR",
-  "Gram specialization",
-  "broadcast vectors",
-  "lazy inverse solves"
-];
 
 function matrixValue(index, tick, salt) {
   const mixed = (index * 73 + tick * 37 + salt * 131 + ((index + tick + salt) % 11) * 19) % 199;
@@ -118,29 +98,34 @@ function MatrixProcessingBackdrop() {
 }
 
 export default function Home() {
+  const {
+    i18n: { currentLocale }
+  } = useDocusaurusContext();
+  const content = getContentForLocale(homeContent, currentLocale);
+
   return (
     <Layout
-      title="WASMatrix"
-      description="AssemblyScript matrix operations for WebAssembly SIMD runtimes."
+      title={content.title}
+      description={content.description}
     >
       <main>
         <section className={styles.hero}>
           <MatrixProcessingBackdrop />
           <div className={styles.heroInner}>
-            <p className={styles.eyebrow}>AssemblyScript + WebAssembly SIMD</p>
+            <p className={styles.eyebrow}>{content.eyebrow}</p>
             <h1>WASMatrix</h1>
             <p className={styles.lede}>
-              Fast dense matrix operations for JavaScript runtimes, with a TypeScript API and a SIMD-required WASM core.
+              {content.lede}
             </p>
             <div className={styles.actions}>
               <Link className="button button--primary button--lg" to="/docs/getting-started">
-                Get started
+                {content.getStarted}
               </Link>
               <Link className="button button--secondary button--lg" to="/docs/api-guide">
-                API guide
+                {content.apiGuide}
               </Link>
             </div>
-            <div className={styles.install} aria-label="Install command">
+            <div className={styles.install} aria-label={content.installAria}>
               <code>npm install wasmatrix</code>
             </div>
           </div>
@@ -149,7 +134,7 @@ export default function Home() {
         <section className={styles.band}>
           <div className={styles.sectionInner}>
             <div className={styles.featureGrid}>
-              {features.map((feature) => (
+              {content.features.map((feature) => (
                 <article className={styles.feature} key={feature.title}>
                   <h2>{feature.title}</h2>
                   <p>{feature.body}</p>
@@ -163,10 +148,10 @@ export default function Home() {
           <div className={styles.sectionInner}>
             <div className={styles.split}>
               <div>
-                <p className={styles.eyebrow}>Try the runtime</p>
-                <h2>Use the same Matrix API in the guide.</h2>
+                <p className={styles.eyebrow}>{content.tryEyebrow}</p>
+                <h2>{content.tryTitle}</h2>
                 <p>
-                  The documentation includes a CodeMirror-based sandbox custom element with a live console, so examples can stay close to the API they describe.
+                  {content.tryBody}
                 </p>
               </div>
               <wasmatrix-sandbox
@@ -188,11 +173,11 @@ console.table(identity.toArray());`}
         <section className={clsx(styles.band, styles.tightBand)}>
           <div className={styles.sectionInner}>
             <div className={styles.opsHeader}>
-              <p className={styles.eyebrow}>What it optimizes</p>
-              <h2>Less copying, fewer passes, reusable decomposition work.</h2>
+              <p className={styles.eyebrow}>{content.optimizeEyebrow}</p>
+              <h2>{content.optimizeTitle}</h2>
             </div>
             <div className={styles.operationList}>
-              {operations.map((operation) => (
+              {content.operations.map((operation) => (
                 <span key={operation}>{operation}</span>
               ))}
             </div>

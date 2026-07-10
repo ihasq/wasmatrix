@@ -3,22 +3,28 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import siteContent from "../src/i18n/siteContent.cjs";
 
 const execFileAsync = promisify(execFile);
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptsDir, "..");
 const repoRoot = resolve(docsRoot, "..");
 const jsonPath = resolve(docsRoot, ".docusaurus/api-reference.json");
-const apiGuidePath = resolve(docsRoot, "docs/api-guide.md");
 const typedocCli = resolve(docsRoot, "node_modules/typedoc/dist/cli.js");
+const {
+  DEFAULT_LOCALE,
+  LOCALES,
+  apiGuideContent,
+  getContentForLocale
+} = siteContent;
 
 const METHOD_GROUPS = [
   {
-    title: "Reading And Writing",
+    titleKey: "readingAndWriting",
     names: ["at", "set", "row", "column", "diagonal", "reshape", "toFloat32Array", "toFlatArray", "toArray"]
   },
   {
-    title: "Elementwise Operations",
+    titleKey: "elementwise",
     names: [
       "add",
       "addScalar",
@@ -40,23 +46,23 @@ const METHOD_GROUPS = [
     ]
   },
   {
-    title: "Matrix Operations",
+    titleKey: "matrixOperations",
     names: ["transpose", "matmul", "matvec", "dot", "clone"]
   },
   {
-    title: "Reductions",
+    titleKey: "reductions",
     names: ["sum", "minValue", "maxValue", "trace", "frobeniusNorm"]
   },
   {
-    title: "Linear Algebra",
+    titleKey: "linearAlgebra",
     names: ["determinant", "logDet", "inverse", "solve", "leastSquares", "rank"]
   },
   {
-    title: "Memory Management",
+    titleKey: "memoryManagement",
     names: ["dispose", "[dispose]"]
   },
   {
-    title: "Utilities",
+    titleKey: "utilities",
     names: ["equalsApprox", "toString"]
   }
 ];
@@ -168,22 +174,34 @@ function shortCall(member, signature, owner = "Matrix") {
   return `${signatureName(member, signature, owner)}(${params})`;
 }
 
-function renderDetails(reflection) {
+function apiGuidePathForLocale(locale) {
+  if (locale === DEFAULT_LOCALE) return resolve(docsRoot, "docs/api-guide.md");
+  return resolve(
+    docsRoot,
+    "i18n",
+    locale,
+    "docusaurus-plugin-content-docs",
+    "current",
+    "api-guide.md"
+  );
+}
+
+function renderDetails(reflection, content) {
   const lines = [];
   const remarks = blockTags(reflection, "@remarks");
   const returns = blockTags(reflection, "@returns");
   const throws = blockTags(reflection, "@throws");
   const defaults = blockTags(reflection, "@defaultValue");
 
-  for (const item of remarks) lines.push(`**Remarks:** ${item}`);
-  for (const item of returns) lines.push(`**Returns:** ${item}`);
-  for (const item of throws) lines.push(`**Throws:** ${item}`);
-  for (const item of defaults) lines.push(`**Default:** ${item}`);
+  for (const item of remarks) lines.push(`**${content.remarks}:** ${item}`);
+  for (const item of returns) lines.push(`**${content.returns}:** ${item}`);
+  for (const item of throws) lines.push(`**${content.throws}:** ${item}`);
+  for (const item of defaults) lines.push(`**${content.defaultLabel}:** ${item}`);
 
   return lines.length ? `\n${lines.join("\n\n")}\n` : "";
 }
 
-function renderParameters(signature) {
+function renderParameters(signature, content) {
   const params = signature.parameters ?? [];
   if (params.length === 0) return "";
   const rows = params.map((param) => {
@@ -192,14 +210,14 @@ function renderParameters(signature) {
     return `| \`${escapeTable(name)}\` | \`${escapeTable(typeToString(param.type))}\` | ${escapeTable(description)} |`;
   });
   return [
-    "| Parameter | Type | Description |",
+    `| ${content.parameter} | ${content.type} | ${content.descriptionLabel} |`,
     "| --- | --- | --- |",
     ...rows,
     ""
   ].join("\n");
 }
 
-function renderSignatureMember(member, owner = "Matrix") {
+function renderSignatureMember(member, content, owner = "Matrix") {
   const signatures = member.signatures ?? [];
   const lines = [];
 
@@ -217,16 +235,16 @@ function renderSignatureMember(member, owner = "Matrix") {
       lines.push(summary);
       lines.push("");
     }
-    const params = renderParameters(signature);
+    const params = renderParameters(signature, content);
     if (params) lines.push(params);
-    const details = renderDetails(signature);
+    const details = renderDetails(signature, content);
     if (details) lines.push(details.trim(), "");
   }
 
   return lines.join("\n").trim();
 }
 
-function renderPropertyTable(title, properties) {
+function renderPropertyTable(title, properties, content) {
   const rows = properties.map((property) => {
     const marker = property.flags?.isReadonly ? "readonly " : "";
     const description = [summaryOf(property), ...blockTags(property, "@remarks")]
@@ -238,14 +256,14 @@ function renderPropertyTable(title, properties) {
   return [
     `## ${title}`,
     "",
-    "| Property | Type | Description |",
+    `| ${content.property ?? "Property"} | ${content.type} | ${content.descriptionLabel} |`,
     "| --- | --- | --- |",
     ...rows,
     ""
   ].join("\n");
 }
 
-function renderOptionTable(optionsReflection) {
+function renderOptionTable(optionsReflection, content) {
   const rows = (optionsReflection.children ?? []).map((property) => {
     const defaultValue = blockTags(property, "@defaultValue")[0] ?? "-";
     const description = [summaryOf(property), ...blockTags(property, "@remarks")]
@@ -255,18 +273,18 @@ function renderOptionTable(optionsReflection) {
   });
 
   return [
-    "## Configuration Options",
+    `## ${content.configurationOptions}`,
     "",
     summaryOf(optionsReflection),
     "",
-    "| Option | Type | Default | Description |",
+    `| ${content.option} | ${content.type} | ${content.defaultLabel} | ${content.descriptionLabel} |`,
     "| --- | --- | ---: | --- |",
     ...rows,
     ""
   ].join("\n");
 }
 
-function renderTypeAlias(typeAlias) {
+function renderTypeAlias(typeAlias, content) {
   return [
     `## \`${typeAlias.name}\``,
     "",
@@ -275,13 +293,13 @@ function renderTypeAlias(typeAlias) {
     "```",
     "",
     summaryOf(typeAlias),
-    renderDetails(typeAlias)
+    renderDetails(typeAlias, content)
   ].join("\n").trim();
 }
 
-function renderTopLevel(reflection) {
+function renderTopLevel(reflection, content) {
   if (reflection.signatures?.length) {
-    return renderSignatureMember(reflection, "");
+    return renderSignatureMember(reflection, content, "");
   }
 
   return [
@@ -292,22 +310,22 @@ function renderTopLevel(reflection) {
     "```",
     "",
     summaryOf(reflection),
-    renderDetails(reflection)
+    renderDetails(reflection, content)
   ].join("\n").trim();
 }
 
-function renderMethodGroup(title, names, membersByName) {
-  const rendered = names
+function renderMethodGroup(group, membersByName, content) {
+  const rendered = group.names
     .map((name) => membersByName.get(name))
     .filter(Boolean)
-    .map((member) => renderSignatureMember(member))
+    .map((member) => renderSignatureMember(member, content))
     .filter(Boolean);
 
   if (rendered.length === 0) return "";
-  return [`## ${title}`, "", ...rendered].join("\n\n");
+  return [`## ${content.methodGroups[group.titleKey]}`, "", ...rendered].join("\n\n");
 }
 
-function generatedMarkdown(project) {
+function generatedMarkdown(project, content) {
   const rootMembers = byName(project.children);
   const matrix = rootMembers.get("Matrix");
   const matrixMembers = byName((matrix.children ?? []).filter((child) => !child.flags?.isStatic));
@@ -324,16 +342,16 @@ function generatedMarkdown(project) {
   const sections = [
     "---",
     "id: api-guide",
-    "title: API Guide",
-    "description: A generated guide to the WASMatrix public API.",
+    `title: ${content.title}`,
+    `description: ${content.description}`,
     "sidebar_position: 2",
     "---",
     "",
-    "<!-- This file is generated by docs/scripts/generate-api-guide.mjs from index.d.ts TSDoc. Do not edit it directly. -->",
+    `<!-- ${content.generatedComment} -->`,
     "",
-    "# API Guide",
+    `# ${content.title}`,
     "",
-    "The default export is the `Matrix` class. Named exports include runtime helpers and global configuration.",
+    content.intro,
     "",
     "```js",
     "import Matrix, {",
@@ -344,27 +362,27 @@ function generatedMarkdown(project) {
     "} from \"wasmatrix\";",
     "```",
     "",
-    "This page is generated from the TSDoc comments in `index.d.ts`, which is copied to `dist/index.d.ts` during the package build.",
+    content.generatedNote,
     "",
-    "## Runtime Helpers",
+    `## ${content.runtimeHelpers}`,
     "",
-    ...runtimeHelpers.map(renderTopLevel).flatMap((item) => [item, ""]),
-    renderOptionTable(rootMembers.get("WasmatrixOptions")),
-    renderTypeAlias(rootMembers.get("WasmBytes")),
+    ...runtimeHelpers.map((member) => renderTopLevel(member, content)).flatMap((item) => [item, ""]),
+    renderOptionTable(rootMembers.get("WasmatrixOptions"), content),
+    renderTypeAlias(rootMembers.get("WasmBytes"), content),
     "## `Matrix`",
     "",
     summaryOf(matrix),
-    renderDetails(matrix).trim(),
+    renderDetails(matrix, content).trim(),
     "",
-    "## Constructor",
+    `## ${content.constructor}`,
     "",
-    renderSignatureMember(matrixMembers.get("constructor")),
+    renderSignatureMember(matrixMembers.get("constructor"), content),
     "",
-    renderPropertyTable("Properties", properties),
-    "## Static Methods",
+    renderPropertyTable(content.properties, properties, content),
+    `## ${content.staticMethods}`,
     "",
-    ...staticMethods.map((member) => renderSignatureMember(member)).flatMap((item) => [item, ""]),
-    ...METHOD_GROUPS.map((group) => renderMethodGroup(group.title, group.names, matrixMembers)).filter(Boolean)
+    ...staticMethods.map((member) => renderSignatureMember(member, content)).flatMap((item) => [item, ""]),
+    ...METHOD_GROUPS.map((group) => renderMethodGroup(group, matrixMembers, content)).filter(Boolean)
   ];
 
   return `${sections.filter((section) => section != null).join("\n\n").replace(/\n{3,}/g, "\n\n").trimEnd()}\n`;
@@ -392,4 +410,9 @@ await execFileAsync(process.execPath, [
 });
 
 const project = JSON.parse(await readFile(jsonPath, "utf8"));
-await writeFile(apiGuidePath, generatedMarkdown(project));
+
+for (const { code } of LOCALES) {
+  const outputPath = apiGuidePathForLocale(code);
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, generatedMarkdown(project, getContentForLocale(apiGuideContent, code)));
+}

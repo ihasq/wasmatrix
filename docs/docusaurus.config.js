@@ -1,12 +1,31 @@
 const path = require("node:path");
 const { themes: prismThemes } = require("prism-react-renderer");
+const {
+  DEFAULT_LOCALE,
+  LOCALES,
+  getContentForLocale,
+  getLocaleCodes,
+  uiContent
+} = require("./src/i18n/siteContent.cjs");
 
 const githubUrl = "https://github.com/ihasq/wasmatrix";
+const currentLocale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? DEFAULT_LOCALE;
+const ui = getContentForLocale(uiContent, currentLocale);
+const localeConfigs = Object.fromEntries(
+  LOCALES.map(({ code, label, htmlLang, direction }) => [
+    code,
+    {
+      label,
+      htmlLang,
+      direction
+    }
+  ])
+);
 
 /** @type {import("@docusaurus/types").Config} */
 const config = {
   title: "WASMatrix",
-  tagline: "AssemblyScript matrix operations for WebAssembly SIMD runtimes.",
+  tagline: ui.tagline,
   favicon: "img/favicon.svg",
   url: "https://ihasq.github.io",
   baseUrl: "/",
@@ -20,8 +39,9 @@ const config = {
     }
   },
   i18n: {
-    defaultLocale: "en",
-    locales: ["en"]
+    defaultLocale: DEFAULT_LOCALE,
+    locales: getLocaleCodes(),
+    localeConfigs
   },
   stylesheets: [
     {
@@ -67,7 +87,11 @@ const config = {
             type: "docSidebar",
             sidebarId: "tutorialSidebar",
             position: "left",
-            label: "Docs"
+            label: ui.docs
+          },
+          {
+            type: "localeDropdown",
+            position: "right"
           },
           {
             type: "html",
@@ -81,33 +105,33 @@ const config = {
         style: "dark",
         links: [
           {
-            title: "Docs",
+            title: ui.docs,
             items: [
               {
-                label: "Getting Started",
+                label: ui.gettingStarted,
                 to: "/docs/getting-started"
               },
               {
-                label: "API Guide",
+                label: ui.apiGuide,
                 to: "/docs/api-guide"
               }
             ]
           },
           {
-            title: "Community",
+            title: ui.community,
             items: [
               {
-                label: "GitHub",
+                label: ui.github,
                 href: githubUrl
               },
               {
-                label: "Issues",
+                label: ui.issues,
                 href: `${githubUrl}/issues`
               }
             ]
           }
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} WASMatrix contributors.`
+        copyright: `Copyright © ${new Date().getFullYear()} ${ui.copyright}`
       },
       prism: {
         theme: prismThemes.github,
