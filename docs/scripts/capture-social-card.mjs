@@ -172,11 +172,13 @@ async function capture() {
       awaitPromise: true,
       expression: `
         (async () => {
+          document.documentElement.setAttribute("data-theme", "dark");
+          document.documentElement.setAttribute("data-theme-choice", "dark");
           await document.fonts.ready;
           const style = document.createElement("style");
           style.textContent = \`
             html, body, #__docusaurus {
-              background: #0f172a !important;
+              background: #000 !important;
               height: ${viewport.height}px !important;
               margin: 0 !important;
               min-height: ${viewport.height}px !important;
@@ -190,15 +192,12 @@ async function capture() {
             }
             main,
             main > section:first-child {
+              background: #000 !important;
               height: ${viewport.height}px !important;
+              margin-top: 0 !important;
               min-height: ${viewport.height}px !important;
               overflow: hidden !important;
               width: ${viewport.width}px !important;
-            }
-            main > section:first-child::after {
-              background:
-                linear-gradient(90deg, rgba(15, 23, 42, 0.82) 0%, rgba(15, 23, 42, 0.42) 42%, rgba(15, 23, 42, 0.06) 100%),
-                linear-gradient(180deg, rgba(15, 23, 42, 0.02) 0%, rgba(15, 23, 42, 0.58) 100%) !important;
             }
             main > section:first-child > div:last-child {
               height: ${viewport.height}px !important;
@@ -218,7 +217,7 @@ async function capture() {
               line-height: 0.88 !important;
               margin: 0 !important;
               max-width: 820px !important;
-              text-shadow: 0 24px 54px rgba(2, 6, 23, 0.38) !important;
+              text-shadow: 0 24px 54px rgba(0, 0, 0, 0.44) !important;
             }
           \`;
           document.head.appendChild(style);

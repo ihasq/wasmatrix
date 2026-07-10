@@ -1,17 +1,67 @@
+.page {
+  background: var(--ifm-background-color);
+}
+
+[data-theme="dark"] .page {
+  background: #000;
+}
+
 .hero {
-  background: #0f172a;
-  color: #f8fafc;
+  --hero-bg: #fff;
+  --hero-fg: #111827;
+  --hero-muted: #374151;
+  --hero-title: #0b1220;
+  --hero-eyebrow: #1f6feb;
+  --hero-install-bg: rgba(17, 24, 39, 0.04);
+  --hero-install-bg-hover: rgba(31, 111, 235, 0.07);
+  --hero-install-border: rgba(17, 24, 39, 0.18);
+  --hero-install-border-hover: rgba(31, 111, 235, 0.45);
+  --hero-install-code: #1f2937;
+  --hero-scrim-bottom: rgba(255, 255, 255, 0.78);
+  --hero-scrim-end: rgba(255, 255, 255, 0.14);
+  --hero-scrim-mid: rgba(255, 255, 255, 0.72);
+  --hero-scrim-start: rgba(255, 255, 255, 0.96);
+  --matrix-bg: #fff;
+  --matrix-fade-bg: #fff;
+  --matrix-grid-line: rgba(136, 136, 136, 0.2);
+  --matrix-number: #888;
+  --matrix-number-strong: #888;
+  background: var(--hero-bg);
+  color: var(--hero-fg);
   height: calc((100vh - var(--ifm-navbar-height)) / 2);
   isolation: isolate;
+  margin-top: calc(var(--ifm-navbar-height) * -1);
   min-height: 24rem;
   overflow: hidden;
   position: relative;
 }
 
+[data-theme="dark"] .hero {
+  --hero-bg: #000;
+  --hero-fg: #f8fafc;
+  --hero-muted: #d7dee7;
+  --hero-title: #fff;
+  --hero-eyebrow: #58a6ff;
+  --hero-install-bg: rgba(255, 255, 255, 0.04);
+  --hero-install-bg-hover: rgba(88, 166, 255, 0.08);
+  --hero-install-border: rgba(148, 163, 184, 0.28);
+  --hero-install-border-hover: rgba(88, 166, 255, 0.52);
+  --hero-install-code: #e5e7eb;
+  --hero-scrim-bottom: rgba(0, 0, 0, 0.82);
+  --hero-scrim-end: rgba(0, 0, 0, 0.18);
+  --hero-scrim-mid: rgba(0, 0, 0, 0.72);
+  --hero-scrim-start: rgba(0, 0, 0, 0.96);
+  --matrix-bg: #000;
+  --matrix-fade-bg: #000;
+  --matrix-grid-line: rgba(68, 68, 68, 0.36);
+  --matrix-number: #666;
+  --matrix-number-strong: #666;
+}
+
 .hero::after {
   background:
-    linear-gradient(90deg, rgba(15, 23, 42, 0.94) 0%, rgba(15, 23, 42, 0.68) 43%, rgba(15, 23, 42, 0.14) 100%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.1) 0%, rgba(15, 23, 42, 0.76) 100%);
+    linear-gradient(90deg, var(--hero-scrim-start) 0%, var(--hero-scrim-mid) 43%, var(--hero-scrim-end) 100%),
+    linear-gradient(180deg, transparent 0%, var(--hero-scrim-bottom) 100%);
   content: "";
   inset: 0;
   pointer-events: none;
@@ -20,9 +70,7 @@
 }
 
 .matrixScene {
-  background:
-    radial-gradient(circle at 78% 12%, rgba(34, 211, 238, 0.24), transparent 29rem),
-    radial-gradient(circle at 62% 88%, rgba(59, 130, 246, 0.12), transparent 24rem);
+  background: var(--matrix-bg);
   inset: -18% -12%;
   opacity: 0.98;
   overflow: hidden;
@@ -34,16 +82,15 @@
 }
 
 .matrixScene::after {
-  -webkit-backdrop-filter: blur(2.4px);
-  backdrop-filter: blur(2.4px);
-  background:
-    linear-gradient(115deg, rgba(8, 18, 34, 0.08), rgba(8, 18, 34, 0.02));
+  -webkit-backdrop-filter: blur(1.8px);
+  backdrop-filter: blur(1.8px);
+  background: var(--matrix-fade-bg);
   content: "";
   inset: 0;
   -webkit-mask-image:
-    linear-gradient(115deg, transparent 0%, transparent 56%, rgba(0, 0, 0, 0.48) 78%, #000 100%);
+    linear-gradient(115deg, transparent 0%, transparent 52%, rgba(0, 0, 0, 0.36) 72%, rgba(0, 0, 0, 0.76) 88%, #000 100%);
   mask-image:
-    linear-gradient(115deg, transparent 0%, transparent 56%, rgba(0, 0, 0, 0.48) 78%, #000 100%);
+    linear-gradient(115deg, transparent 0%, transparent 52%, rgba(0, 0, 0, 0.36) 72%, rgba(0, 0, 0, 0.76) 88%, #000 100%);
   pointer-events: none;
   position: absolute;
   z-index: 1;
@@ -66,19 +113,19 @@
 }
 
 .matrixTileBase {
-  fill: rgba(8, 18, 34, 0.86);
+  fill: var(--matrix-bg);
 }
 
 .matrixGridLine {
   shape-rendering: geometricPrecision;
-  stroke: rgba(125, 211, 252, 0.16);
+  stroke: var(--matrix-grid-line);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
 .matrixNumber {
-  fill: rgba(219, 234, 254, 0.6);
-  font-family: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  fill: var(--matrix-number);
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
   font-size: 23px;
   font-variant-numeric: tabular-nums;
   font-weight: 400;
@@ -87,11 +134,11 @@
 }
 
 .matrixNumberStrong {
-  fill: rgba(147, 197, 253, 0.78);
+  fill: var(--matrix-number-strong);
 }
 
 .matrixFill {
-  opacity: 0.96;
+  opacity: 1;
 }
 
 .heroInner {
@@ -109,7 +156,7 @@
 }
 
 .eyebrow {
-  color: #58a6ff;
+  color: var(--hero-eyebrow);
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -118,8 +165,8 @@
 }
 
 .hero h1 {
-  color: #fff;
-  font-family: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  color: var(--hero-title);
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(3.6rem, 8vw, 6.5rem);
   letter-spacing: 0;
   line-height: 0.9;
@@ -127,7 +174,7 @@
 }
 
 .lede {
-  color: #dbeafe;
+  color: var(--hero-muted);
   font-size: clamp(1.05rem, 1.9vw, 1.35rem);
   line-height: 1.5;
   margin: 1rem 0 0;
@@ -142,23 +189,44 @@
 }
 
 .install {
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  align-items: center;
+  appearance: none;
+  background: var(--hero-install-bg);
+  border: 1px solid var(--hero-install-border);
   border-radius: 8px;
+  color: inherit;
+  cursor: copy;
+  display: inline-flex;
+  font: inherit;
   margin-top: 1rem;
   max-width: max-content;
   padding: 0.6rem 0.8rem;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.install:hover {
+  background: var(--hero-install-bg-hover);
+  border-color: var(--hero-install-border-hover);
+}
+
+.install:focus-visible {
+  outline: 2px solid var(--ifm-color-primary);
+  outline-offset: 3px;
 }
 
 .install code {
   background: transparent;
   border: 0;
-  color: #bfdbfe;
+  color: var(--hero-install-code);
   font-size: 0.92rem;
+  pointer-events: none;
 }
 
 .band,
 .splitBand {
-  background: var(--ifm-background-color);
+  background: inherit;
 }
 
 .splitBand {
@@ -204,7 +272,7 @@
 
 .split h2,
 .opsHeader h2 {
-  font-family: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
   font-size: clamp(2rem, 4vw, 3.2rem);
   letter-spacing: 0;
   line-height: 1.05;
@@ -243,12 +311,12 @@
 
 @media (max-width: 900px) {
   .hero {
-    height: auto;
-    min-height: auto;
+    height: calc((100vh + var(--ifm-navbar-height)) / 2);
+    min-height: 22rem;
   }
 
   .heroInner {
-    min-height: auto;
+    min-height: 0;
   }
 
   .featureGrid,

@@ -11,6 +11,7 @@ const { getContentForLocale, homeContent } = siteContent;
 
 const GITHUB_URL = "https://github.com/ihasq/wasmatrix";
 const NPM_URL = "https://www.npmjs.com/package/wasmatrix";
+const INSTALL_COMMAND = "npm install wasmatrix";
 const SEO_KEYWORDS = [
   "WASMatrix",
   "WebAssembly SIMD",
@@ -54,6 +55,37 @@ function matrixInteger(seed) {
   let value = Math.imul(seed ^ 0x85ebca6b, 0xc2b2ae35) >>> 0;
   value = (value ^ (value >>> 15)) >>> 0;
   return String((value % MATRIX_VALUE_SPAN) - MATRIX_VALUE_OFFSET);
+}
+
+async function copyTextToClipboard(value) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch (_error) {
+      // Fall through to the selection-based copy path.
+    }
+  }
+
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  document.body.append(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
 }
 
 function MatrixProcessingBackdrop() {
@@ -268,7 +300,7 @@ export default function Home() {
           {JSON.stringify(structuredData)}
         </script>
       </Head>
-      <main>
+      <main className={styles.page}>
         <section className={styles.hero}>
           <MatrixProcessingBackdrop />
           <div className={styles.heroInner}>
@@ -285,9 +317,17 @@ export default function Home() {
                 {content.apiGuide}
               </Link>
             </div>
-            <div className={styles.install} aria-label={content.installAria}>
-              <code>npm install wasmatrix</code>
-            </div>
+            <button
+              className={styles.install}
+              type="button"
+              aria-label={`${content.installAria}: ${INSTALL_COMMAND}`}
+              title={content.installAria}
+              onClick={() => {
+                void copyTextToClipboard(INSTALL_COMMAND);
+              }}
+            >
+              <code>{INSTALL_COMMAND}</code>
+            </button>
           </div>
         </section>
 

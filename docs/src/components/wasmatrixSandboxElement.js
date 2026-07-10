@@ -134,12 +134,12 @@ class WasmatrixSandbox extends HTMLElement {
 
         .title {
           color: var(--ifm-color-emphasis-800, #1f2937);
-          font: 600 0.88rem "Inter", ui-sans-serif, system-ui, sans-serif;
+          font: 600 0.88rem "Geist", ui-sans-serif, system-ui, sans-serif;
         }
 
         .status {
           color: var(--ifm-color-emphasis-600, #64748b);
-          font: 500 0.78rem "Inter", ui-sans-serif, system-ui, sans-serif;
+          font: 500 0.78rem "Geist", ui-sans-serif, system-ui, sans-serif;
           margin-left: auto;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -155,7 +155,7 @@ class WasmatrixSandbox extends HTMLElement {
           color: #fff;
           cursor: pointer;
           display: inline-flex;
-          font: 700 0.82rem "Inter", ui-sans-serif, system-ui, sans-serif;
+          font: 700 0.82rem "Geist", ui-sans-serif, system-ui, sans-serif;
           gap: 0.35rem;
           height: 2rem;
           padding: 0 0.85rem;
