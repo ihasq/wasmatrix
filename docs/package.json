@@ -1,0 +1,28 @@
+{
+  "name": "wasmatrix-docs",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "prepare:runtime": "node scripts/prepare-runtime.mjs",
+    "prestart": "npm run prepare:runtime",
+    "start": "docusaurus start",
+    "prebuild": "npm run prepare:runtime",
+    "build": "docusaurus build",
+    "serve": "docusaurus serve",
+    "clear": "docusaurus clear"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.6",
+    "@docusaurus/core": "^3.10.1",
+    "@docusaurus/preset-classic": "^3.10.1",
+    "@mdx-js/react": "^3.1.1",
+    "clsx": "^2.1.1",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

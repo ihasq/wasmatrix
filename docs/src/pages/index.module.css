@@ -1,0 +1,195 @@
+.hero {
+  background: #0f172a;
+  color: #f8fafc;
+  height: calc((100vh - var(--ifm-navbar-height)) / 2);
+  min-height: 24rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.matrixScene {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  inset: 0;
+  opacity: 0.28;
+  padding: clamp(1rem, 3vw, 3rem);
+  position: absolute;
+  transform: rotate(-8deg) scale(1.14);
+}
+
+.matrixScene span {
+  align-items: center;
+  aspect-ratio: 1;
+  background: rgba(88, 166, 255, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 6px;
+  color: #bfdbfe;
+  display: flex;
+  font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: clamp(0.6rem, 1.5vw, 1rem);
+  justify-content: center;
+}
+
+.heroInner {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto;
+  max-width: 1180px;
+  height: 100%;
+  min-height: 0;
+  padding: clamp(2rem, 5vh, 3.5rem) 1.5rem;
+  position: relative;
+  width: 100%;
+}
+
+.eyebrow {
+  color: #58a6ff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.65rem;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  color: #fff;
+  font-family: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(3.6rem, 8vw, 6.5rem);
+  letter-spacing: 0;
+  line-height: 0.9;
+  margin: 0;
+}
+
+.lede {
+  color: #dbeafe;
+  font-size: clamp(1.05rem, 1.9vw, 1.35rem);
+  line-height: 1.5;
+  margin: 1rem 0 0;
+  max-width: 720px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 1.4rem;
+}
+
+.install {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  margin-top: 1rem;
+  max-width: max-content;
+  padding: 0.6rem 0.8rem;
+}
+
+.install code {
+  background: transparent;
+  border: 0;
+  color: #bfdbfe;
+  font-size: 0.92rem;
+}
+
+.band,
+.splitBand {
+  background: var(--ifm-background-color);
+}
+
+.splitBand {
+  border-top: 1px solid var(--ifm-color-emphasis-200);
+}
+
+.sectionInner {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 4.5rem 1.5rem;
+}
+
+.featureGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.feature {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  padding: 1.35rem;
+}
+
+.feature h2 {
+  font-size: 1.12rem;
+  letter-spacing: 0;
+  margin: 0 0 0.55rem;
+}
+
+.feature p {
+  color: var(--ifm-color-emphasis-700);
+  line-height: 1.65;
+  margin: 0;
+}
+
+.split {
+  align-items: center;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(17rem, 0.78fr) minmax(0, 1.22fr);
+}
+
+.split h2,
+.opsHeader h2 {
+  font-family: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  letter-spacing: 0;
+  line-height: 1.05;
+  margin: 0;
+}
+
+.split p:not(.eyebrow) {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.05rem;
+  line-height: 1.7;
+  margin: 1rem 0 0;
+}
+
+.tightBand .sectionInner {
+  padding-top: 3.5rem;
+}
+
+.opsHeader {
+  max-width: 760px;
+}
+
+.operationList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.8rem;
+}
+
+.operationList span {
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 999px;
+  color: var(--ifm-color-emphasis-800);
+  font-weight: 700;
+  padding: 0.5rem 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .hero {
+    height: auto;
+    min-height: auto;
+  }
+
+  .heroInner {
+    min-height: auto;
+  }
+
+  .featureGrid,
+  .split {
+    grid-template-columns: 1fr;
+  }
+}

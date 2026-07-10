@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="WASMatrix">
+  <rect width="64" height="64" rx="14" fill="#111827"/>
+  <path fill="#58a6ff" d="M14 16h10v10H14V16Zm13 0h10v10H27V16Zm13 0h10v10H40V16ZM14 29h10v10H14V29Zm13 0h10v10H27V29Zm13 0h10v10H40V29ZM14 42h10v10H14V42Zm13 0h10v10H27V42Zm13 0h10v10H40V42Z"/>
+  <path fill="#fff" d="M19 21h26v4H19v-4Zm0 13h26v4H19v-4Zm0 13h26v4H19v-4Z" opacity=".22"/>
+</svg>

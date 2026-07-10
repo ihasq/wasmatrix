@@ -1,0 +1,7 @@
+.docusaurus/
+build/
+node_modules/
+static/wasmatrix-runtime/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
