@@ -1,4 +1,5 @@
 import Link from "@docusaurus/Link";
+import Head from "@docusaurus/Head";
 import Layout from "@theme/Layout";
 import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import clsx from "clsx";
@@ -8,6 +9,16 @@ import styles from "./index.module.css";
 
 const { getContentForLocale, homeContent } = siteContent;
 
+const GITHUB_URL = "https://github.com/ihasq/wasmatrix";
+const NPM_URL = "https://www.npmjs.com/package/wasmatrix";
+const SEO_KEYWORDS = [
+  "WASMatrix",
+  "WebAssembly SIMD",
+  "AssemblyScript",
+  "TypeScript matrix library",
+  "JavaScript linear algebra",
+  "WASM matrix operations"
+];
 const MATRIX_TILE_COLUMNS = 16;
 const MATRIX_TILE_ROWS = 16;
 const MATRIX_CELL_WIDTH = 86;
@@ -184,15 +195,79 @@ function MatrixProcessingBackdrop() {
 
 export default function Home() {
   const {
-    i18n: { currentLocale }
+    i18n: { currentLocale, defaultLocale },
+    siteConfig
   } = useDocusaurusContext();
   const content = getContentForLocale(homeContent, currentLocale);
+  const siteUrl = siteConfig.url.replace(/\/+$/, "");
+  const pageUrl = currentLocale === defaultLocale ? siteUrl : `${siteUrl}/${currentLocale}`;
+  const socialImageUrl = `${siteUrl}/img/social-card.png`;
+  const seoTitle = `${content.title} - WebAssembly SIMD matrix operations`;
+  const seoDescription = content.lede || content.description;
+  const structuredData = [
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareSourceCode",
+      name: "WASMatrix",
+      description: seoDescription,
+      url: pageUrl,
+      image: socialImageUrl,
+      codeRepository: GITHUB_URL,
+      programmingLanguage: ["TypeScript", "AssemblyScript"],
+      runtimePlatform: ["WebAssembly", "Node.js", "Deno", "Bun", "Web browser"],
+      license: "https://opensource.org/licenses/MIT",
+      keywords: SEO_KEYWORDS.join(", ")
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "WASMatrix",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "Cross-platform",
+      description: seoDescription,
+      url: pageUrl,
+      installUrl: NPM_URL,
+      softwareVersion: "0.0.4",
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "USD"
+      }
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "WASMatrix Docs",
+      url: siteUrl,
+      description: content.description,
+      inLanguage: currentLocale
+    }
+  ];
 
   return (
     <Layout
       title={content.title}
       description={content.description}
     >
+      <Head>
+        <meta name="description" content={seoDescription} />
+        <meta name="keywords" content={SEO_KEYWORDS.join(", ")} />
+        <meta property="og:title" content={seoTitle} />
+        <meta property="og:description" content={seoDescription} />
+        <meta property="og:url" content={pageUrl} />
+        <meta property="og:image" content={socialImageUrl} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="WASMatrix documentation" />
+        <meta name="twitter:title" content={seoTitle} />
+        <meta name="twitter:description" content={seoDescription} />
+        <meta name="twitter:image" content={socialImageUrl} />
+        <meta name="twitter:image:alt" content="WASMatrix documentation" />
+        <link rel="canonical" href={pageUrl} />
+        <script type="application/ld+json">
+          {JSON.stringify(structuredData)}
+        </script>
+      </Head>
       <main>
         <section className={styles.hero}>
           <MatrixProcessingBackdrop />

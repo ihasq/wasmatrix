@@ -1,4 +1,5 @@
 const path = require("node:path");
+const fs = require("node:fs/promises");
 const { themes: prismThemes } = require("prism-react-renderer");
 const {
   DEFAULT_LOCALE,
@@ -9,6 +10,21 @@ const {
 } = require("./src/i18n/siteContent.cjs");
 
 const githubUrl = "https://github.com/ihasq/wasmatrix";
+const npmUrl = "https://www.npmjs.com/package/wasmatrix";
+const siteUrl = (process.env.DOCS_SITE_URL || process.env.SITE_URL || "https://wasmatrix.pages.dev")
+  .replace(/\/+$/, "");
+const socialImage = "img/social-card.png";
+const socialImageUrl = `${siteUrl}/${socialImage}`;
+const seoKeywords = [
+  "wasmatrix",
+  "WebAssembly SIMD",
+  "WASM matrix library",
+  "AssemblyScript",
+  "TypeScript matrix library",
+  "JavaScript linear algebra",
+  "browser matrix operations",
+  "Node.js matrix operations"
+];
 const currentLocale = process.env.DOCUSAURUS_CURRENT_LOCALE ?? DEFAULT_LOCALE;
 const ui = getContentForLocale(uiContent, currentLocale);
 const localeConfigs = Object.fromEntries(
@@ -22,12 +38,35 @@ const localeConfigs = Object.fromEntries(
   ])
 );
 
+function wasmatrixSeoFilesPlugin() {
+  return {
+    name: "wasmatrix-seo-files",
+    async postBuild({ outDir }) {
+      const sitemapUrls = [
+        `${siteUrl}/sitemap.xml`,
+        ...getLocaleCodes()
+          .filter((locale) => locale !== DEFAULT_LOCALE)
+          .map((locale) => `${siteUrl}/${locale}/sitemap.xml`)
+      ];
+      const robots = [
+        "User-agent: *",
+        "Allow: /",
+        "",
+        ...sitemapUrls.map((sitemapUrl) => `Sitemap: ${sitemapUrl}`),
+        ""
+      ].join("\n");
+
+      await fs.writeFile(path.join(outDir, "robots.txt"), robots, "utf8");
+    }
+  };
+}
+
 /** @type {import("@docusaurus/types").Config} */
 const config = {
   title: "WASMatrix",
   tagline: ui.tagline,
   favicon: "img/favicon.svg",
-  url: "https://ihasq.github.io",
+  url: siteUrl,
   baseUrl: "/",
   organizationName: "ihasq",
   projectName: "wasmatrix",
@@ -49,6 +88,37 @@ const config = {
       type: "text/css"
     }
   ],
+  headTags: [
+    {
+      tagName: "link",
+      attributes: {
+        rel: "preconnect",
+        href: "https://fonts.googleapis.com"
+      }
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "preconnect",
+        href: "https://fonts.gstatic.com",
+        crossorigin: "anonymous"
+      }
+    },
+    {
+      tagName: "meta",
+      attributes: {
+        name: "theme-color",
+        content: "#0f172a"
+      }
+    },
+    {
+      tagName: "meta",
+      attributes: {
+        name: "application-name",
+        content: "WASMatrix"
+      }
+    }
+  ],
   presets: [
     [
       "classic",
@@ -60,6 +130,11 @@ const config = {
           editUrl: `${githubUrl}/edit/main/docs/`
         },
         blog: false,
+        sitemap: {
+          changefreq: "weekly",
+          priority: 0.8,
+          ignorePatterns: ["/wasmatrix-runtime/**"]
+        },
         theme: {
           customCss: "./src/css/custom.css"
         }
@@ -67,6 +142,7 @@ const config = {
     ]
   ],
   plugins: [
+    wasmatrixSeoFilesPlugin,
     function wasmatrixSandboxPlugin() {
       return {
         name: "wasmatrix-sandbox-web-component",
@@ -79,7 +155,7 @@ const config = {
   themeConfig:
     /** @type {import("@docusaurus/preset-classic").ThemeConfig} */
     ({
-      image: "img/social-card.svg",
+      image: socialImage,
       navbar: {
         title: "WASMatrix",
         items: [
@@ -141,7 +217,55 @@ const config = {
       metadata: [
         {
           name: "keywords",
-          content: "wasmatrix, wasm, webassembly, simd, matrix, assemblyscript, linear algebra"
+          content: seoKeywords.join(", ")
+        },
+        {
+          name: "robots",
+          content: "index, follow, max-image-preview:large"
+        },
+        {
+          name: "googlebot",
+          content: "index, follow, max-image-preview:large"
+        },
+        {
+          property: "og:site_name",
+          content: "WASMatrix"
+        },
+        {
+          property: "og:type",
+          content: "website"
+        },
+        {
+          property: "og:image",
+          content: socialImageUrl
+        },
+        {
+          property: "og:image:width",
+          content: "1200"
+        },
+        {
+          property: "og:image:height",
+          content: "630"
+        },
+        {
+          property: "og:image:alt",
+          content: "WASMatrix documentation"
+        },
+        {
+          name: "twitter:card",
+          content: "summary_large_image"
+        },
+        {
+          name: "twitter:image",
+          content: socialImageUrl
+        },
+        {
+          name: "twitter:image:alt",
+          content: "WASMatrix documentation"
+        },
+        {
+          name: "npm",
+          content: npmUrl
         }
       ]
     })

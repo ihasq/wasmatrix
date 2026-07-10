@@ -344,6 +344,7 @@ function generatedMarkdown(project, content) {
     "id: api-guide",
     `title: ${content.title}`,
     `description: ${content.description}`,
+    "keywords: [WASMatrix API, Matrix class, WebAssembly SIMD, AssemblyScript, TypeScript matrix library]",
     "sidebar_position: 2",
     "---",
     "",

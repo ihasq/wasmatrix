@@ -2,6 +2,7 @@
 id: getting-started
 title: Getting Started
 description: Install WASMatrix, load its WebAssembly SIMD runtime, and run practical matrix workflows.
+keywords: [WASMatrix, WebAssembly SIMD, AssemblyScript, TypeScript matrix library, JavaScript linear algebra]
 sidebar_position: 1
 ---
 

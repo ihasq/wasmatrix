@@ -6,6 +6,8 @@ title: API Guide
 
 description: A generated guide to the WASMatrix public API.
 
+keywords: [WASMatrix API, Matrix class, WebAssembly SIMD, AssemblyScript, TypeScript matrix library]
+
 sidebar_position: 2
 
 ---
