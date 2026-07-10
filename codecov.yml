@@ -17,7 +17,6 @@ comment:
   require_changes: false
 
 ignore:
-  - "wasmatrix.ts"
   - "build/**"
   - "dist/**"
   - "docs/**"
