@@ -1,0 +1,57 @@
+{
+  "name": "wasmatrix",
+  "version": "0.0.1",
+  "description": "SIMD-required WebAssembly matrix operations powered by AssemblyScript",
+  "keywords": [
+    "wasm",
+    "simd",
+    "matrix",
+    "assemblyscript",
+    "linear-algebra"
+  ],
+  "homepage": "https://github.com/ihasq/wasmatrix#readme",
+  "bugs": {
+    "url": "https://github.com/ihasq/wasmatrix/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ihasq/wasmatrix.git"
+  },
+  "license": "MIT",
+  "author": "ihasq",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "assembly",
+    "dist",
+    "README.md",
+    "src"
+  ],
+  "scripts": {
+    "build": "npm run build:wasm && npm run build:ts && npm run build:dist",
+    "build:wasm": "asc --config asconfig.json --target release",
+    "build:ts": "tsc -p tsconfig.json",
+    "build:dist": "node scripts/prepare-dist.mjs build/wasmatrix.wasm",
+    "build:debug": "asc --config asconfig.json --target debug && npm run build:ts && node scripts/prepare-dist.mjs build/wasmatrix.debug.wasm",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:e2e": "npm run build && node --test test/e2e-transparency.test.mjs test/e2e-benchmark.mjs",
+    "test:e2e:transparency": "npm run build && node --test test/e2e-transparency.test.mjs",
+    "test:e2e:benchmark": "npm run build && node --test test/e2e-benchmark.mjs",
+    "benchmark": "npm run test:e2e:benchmark"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.28.19",
+    "typescript": "^5.8.3"
+  }
+}

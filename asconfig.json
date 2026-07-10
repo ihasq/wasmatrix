@@ -1,0 +1,30 @@
+{
+  "entries": [
+    "assembly/index.ts"
+  ],
+  "options": {
+    "enable": [
+      "simd"
+    ],
+    "exportRuntime": false,
+    "initialMemory": 1,
+    "maximumMemory": 256,
+    "runtime": "minimal"
+  },
+  "targets": {
+    "debug": {
+      "outFile": "build/wasmatrix.debug.wasm",
+      "textFile": "build/wasmatrix.debug.wat",
+      "debug": true,
+      "sourceMap": true
+    },
+    "release": {
+      "outFile": "build/wasmatrix.wasm",
+      "textFile": "build/wasmatrix.wat",
+      "optimizeLevel": 3,
+      "shrinkLevel": 0,
+      "converge": true,
+      "noAssert": true
+    }
+  }
+}
