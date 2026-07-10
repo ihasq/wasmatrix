@@ -72,6 +72,12 @@ const config = {
   projectName: "wasmatrix",
   trailingSlash: false,
   onBrokenLinks: "throw",
+  future: {
+    v4: {
+      removeLegacyPostBuildHeadAttribute: true
+    },
+    faster: true
+  },
   markdown: {
     hooks: {
       onBrokenMarkdownLinks: "warn"
