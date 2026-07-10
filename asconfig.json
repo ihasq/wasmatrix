@@ -1,6 +1,6 @@
 {
   "entries": [
-    "assembly/index.ts"
+    "src/assembly/index.ts"
   ],
   "options": {
     "enable": [

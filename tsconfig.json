@@ -17,5 +17,5 @@
     "useDefineForClassFields": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["assembly", "build", "docs", "node_modules", "test"]
+  "exclude": ["src/assembly", "build", "docs", "node_modules", "test"]
 }

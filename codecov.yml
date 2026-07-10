@@ -17,7 +17,7 @@ comment:
   require_changes: false
 
 ignore:
-  - "assembly/**"
+  - "src/assembly/**"
   - "build/**"
   - "dist/**"
   - "docs/**"
