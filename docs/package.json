@@ -32,6 +32,7 @@
     "@oxc-node/core": "^0.1.0",
     "@types/node": "^24.10.2",
     "assemblyscript": "^0.28.19",
+    "oxc-parser": "^0.139.0",
     "typedoc": "^0.28.20",
     "typescript": "^5.9.3"
   }

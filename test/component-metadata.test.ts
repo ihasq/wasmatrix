@@ -30,19 +30,15 @@ test("component WIT is generated from the AssemblyScript source of truth", () =>
     new URL("../wit/wasmatrix.wit", import.meta.url),
     "utf8",
   );
-  const expected = [
-    "// Generated from wasmatrix.ts. Do not edit directly.",
-    extractCommentBlock(
-      source,
-      "// @wasmatrix-component-wit begin",
-      "// @wasmatrix-component-wit end",
-      "WIT",
-    ),
-    "",
-  ].join("\n");
 
-  assert.equal(generated, expected);
+  assert.match(source, /declare namespace WasmatrixComponentWit/);
+  assert.doesNotMatch(source, /@wasmatrix-component-wit/);
+  assert.match(generated, /^\/\/ Generated from wasmatrix\.ts/m);
+  assert.match(generated, /package ihasq:wasmatrix@0\.1\.0;/);
+  assert.match(generated, /interface matrix-api/);
   assert.match(generated, /resource matrix/);
+  assert.match(generated, /constructor\(rows: u32, cols: u32, data: option<list<f32>>\);/);
+  assert.match(generated, /set: func\(row: u32, col: u32, value: f32\) -> result<_, matrix-error>;/);
   assert.match(generated, /world wasmatrix/);
 });
 

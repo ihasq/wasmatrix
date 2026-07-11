@@ -1,142 +1,84 @@
 const EPSILON: f64 = 1.0e-12;
 
-// @wasmatrix-component-wit begin
-// /// WASMatrix component interface generated from `wasmatrix.ts`.
-// ///
-// /// The AssemblyScript file is the source of truth. The generated WIT keeps
-// /// the wasm-first API separate from the JavaScript adapter: the adapter may
-// /// coalesce JS<->WASM boundary calls, while the WASM processing space remains
-// /// a straightforward matrix runtime.
-// package ihasq:wasmatrix@0.1.0;
-//
-// /// Dense `f32` matrix operations backed by WebAssembly memory.
-// interface matrix-api {
-//   /// Matrix dimensions in row-major order.
-//   record shape {
-//     /// Number of rows.
-//     rows: u32,
-//     /// Number of columns.
-//     cols: u32,
-//   }
-//
-//   /// Errors produced by shape checks, indexing, or factorization.
-//   variant matrix-error {
-//     /// One or more dimensions are zero, negative, or overflow the runtime limit.
-//     invalid-shape,
-//     /// The requested operation requires compatible dimensions.
-//     shape-mismatch,
-//     /// The requested operation requires a square matrix.
-//     not-square,
-//     /// A row or column index is outside the matrix bounds.
-//     index-out-of-range,
-//     /// The system is singular or rank deficient.
-//     singular,
-//     /// The matrix resource has already been disposed.
-//     disposed,
-//   }
-//
-//   /// Scalar-or-matrix operand used by elementwise methods.
-//   variant operand {
-//     /// A scalar `f32` value.
-//     scalar(f32),
-//     /// A full matrix, row vector, or column vector.
-//     matrix(borrow<matrix>),
-//   }
-//
-//   /// Dense row-major `f32` matrix resource.
-//   resource matrix {
-//     /// Creates a matrix from optional row-major data.
-//     constructor(rows: u32, cols: u32, data: option<list<f32>>);
-//
-//     /// Creates a zero-filled matrix.
-//     zeros: static func(rows: u32, cols: u32) -> result<matrix, matrix-error>;
-//     /// Creates a one-filled matrix.
-//     ones: static func(rows: u32, cols: u32) -> result<matrix, matrix-error>;
-//     /// Creates an identity matrix.
-//     identity: static func(size: u32) -> result<matrix, matrix-error>;
-//     /// Creates a dense diagonal matrix from vector values.
-//     diagonal: static func(values: list<f32>) -> result<matrix, matrix-error>;
-//     /// Computes an outer product.
-//     outer: static func(left: list<f32>, right: list<f32>) -> result<matrix, matrix-error>;
-//
-//     /// Returns the shape.
-//     shape: func() -> shape;
-//     /// Returns the internal mutation version.
-//     version: func() -> u32;
-//     /// Reads one scalar value.
-//     at: func(row: u32, col: u32) -> result<f32, matrix-error>;
-//     /// Writes one scalar value and invalidates cached factorizations.
-//     set: func(row: u32, col: u32, value: f32) -> result<_, matrix-error>;
-//     /// Creates a deep copy.
-//     clone: func() -> matrix;
-//     /// Copies matrix contents into a row-major list.
-//     to-list: func() -> list<f32>;
-//
-//     /// Adds a scalar, full matrix, row vector, or column vector.
-//     add: func(other: operand) -> result<matrix, matrix-error>;
-//     /// Subtracts a scalar, full matrix, row vector, or column vector.
-//     subtract: func(other: operand) -> result<matrix, matrix-error>;
-//     /// Multiplies every element by a scalar.
-//     scale: func(value: f32) -> matrix;
-//     /// Divides by a scalar, full matrix, row vector, or column vector.
-//     divide: func(other: operand) -> result<matrix, matrix-error>;
-//     /// Elementwise multiplication with full, row, or column broadcasting.
-//     hadamard: func(other: borrow<matrix>) -> result<matrix, matrix-error>;
-//     /// Elementwise minimum.
-//     min: func(other: borrow<matrix>) -> result<matrix, matrix-error>;
-//     /// Elementwise maximum.
-//     max: func(other: borrow<matrix>) -> result<matrix, matrix-error>;
-//     /// Negates every element.
-//     negate: func() -> matrix;
-//     /// Applies absolute value.
-//     abs: func() -> matrix;
-//     /// Applies square root.
-//     sqrt: func() -> matrix;
-//     /// Applies floor.
-//     floor: func() -> matrix;
-//     /// Applies ceiling.
-//     ceil: func() -> matrix;
-//     /// Clamps every element into `[min-value, max-value]`.
-//     clamp: func(min-value: f32, max-value: f32) -> result<matrix, matrix-error>;
-//
-//     /// Returns a materialized transpose.
-//     transpose: func() -> matrix;
-//     /// Matrix multiplication.
-//     matmul: func(other: borrow<matrix>) -> result<matrix, matrix-error>;
-//     /// Solves `self * x = rhs`.
-//     solve: func(rhs: borrow<matrix>) -> result<matrix, matrix-error>;
-//     /// Solves a least-squares system for tall or square matrices.
-//     least-squares: func(rhs: borrow<matrix>) -> result<matrix, matrix-error>;
-//     /// Computes an inverse matrix.
-//     inverse: func() -> result<matrix, matrix-error>;
-//
-//     /// Sums all elements.
-//     sum: func() -> f64;
-//     /// Returns the minimum element.
-//     min-value: func() -> f32;
-//     /// Returns the maximum element.
-//     max-value: func() -> f32;
-//     /// Returns the trace.
-//     trace: func() -> f64;
-//     /// Returns the Frobenius norm.
-//     frobenius-norm: func() -> f64;
-//     /// Computes the determinant of a square matrix.
-//     determinant: func() -> result<f64, matrix-error>;
-//     /// Computes the natural log of a positive determinant.
-//     log-det: func() -> result<f64, matrix-error>;
-//     /// Estimates rank using a QR factorization.
-//     rank: func(epsilon: f64) -> result<u32, matrix-error>;
-//     /// Compares matrices with an absolute tolerance.
-//     equals-approx: func(other: borrow<matrix>, epsilon: f64) -> result<bool, matrix-error>;
-//   }
-// }
-//
-// /// Component world exported by WASMatrix.
-// world wasmatrix {
-//   /// Matrix API export.
-//   export matrix-api;
-// }
-// @wasmatrix-component-wit end
+declare namespace WasmatrixComponentWit {
+  export const packageId: "ihasq:wasmatrix@0.1.0";
+  export const interfaceName: "matrix-api";
+  export const worldName: "wasmatrix";
+
+  export class Record {}
+  export class Variant {}
+  export class Resource {}
+  export class Result<T, E> {}
+  export class Borrow<T> {}
+  export class List<T> {}
+  export class Option<T> {}
+
+  export class Shape extends Record {
+    rows: u32;
+    cols: u32;
+  }
+
+  export enum MatrixError {
+    InvalidShape,
+    ShapeMismatch,
+    NotSquare,
+    IndexOutOfRange,
+    Singular,
+    Disposed,
+  }
+
+  export class Operand extends Variant {
+    scalar: f32;
+    matrix: Borrow<Matrix>;
+  }
+
+  export class Matrix extends Resource {
+    constructor(rows: u32, cols: u32, data: Option<List<f32>>);
+
+    static zeros(rows: u32, cols: u32): Result<Matrix, MatrixError>;
+    static ones(rows: u32, cols: u32): Result<Matrix, MatrixError>;
+    static identity(size: u32): Result<Matrix, MatrixError>;
+    static diagonal(values: List<f32>): Result<Matrix, MatrixError>;
+    static outer(left: List<f32>, right: List<f32>): Result<Matrix, MatrixError>;
+
+    shape(): Shape;
+    version(): u32;
+    at(row: u32, col: u32): Result<f32, MatrixError>;
+    set(row: u32, col: u32, value: f32): Result<void, MatrixError>;
+    clone(): Matrix;
+    toList(): List<f32>;
+
+    add(other: Operand): Result<Matrix, MatrixError>;
+    subtract(other: Operand): Result<Matrix, MatrixError>;
+    scale(value: f32): Matrix;
+    divide(other: Operand): Result<Matrix, MatrixError>;
+    hadamard(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
+    min(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
+    max(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
+    negate(): Matrix;
+    abs(): Matrix;
+    sqrt(): Matrix;
+    floor(): Matrix;
+    ceil(): Matrix;
+    clamp(minValue: f32, maxValue: f32): Result<Matrix, MatrixError>;
+
+    transpose(): Matrix;
+    matmul(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
+    solve(rhs: Borrow<Matrix>): Result<Matrix, MatrixError>;
+    leastSquares(rhs: Borrow<Matrix>): Result<Matrix, MatrixError>;
+    inverse(): Result<Matrix, MatrixError>;
+
+    sum(): f64;
+    minValue(): f32;
+    maxValue(): f32;
+    trace(): f64;
+    frobeniusNorm(): f64;
+    determinant(): Result<f64, MatrixError>;
+    logDet(): Result<f64, MatrixError>;
+    rank(epsilon: f64): Result<u32, MatrixError>;
+    equalsApprox(other: Borrow<Matrix>, epsilon: f64): Result<bool, MatrixError>;
+  }
+}
 
 // @wasmatrix-js-adapter begin
 // export const SIMD_REQUIRED = true;
