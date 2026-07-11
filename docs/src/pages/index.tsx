@@ -378,15 +378,18 @@ export default function Home() {
               </div>
               <wasmatrix-sandbox
                 code={`const a = Matrix.from(2, 2, [
-  4, 7,
-  2, 6
+  1, 2,
+  3, 4
 ]);
 
-const inverse = a.inverse();
-const identity = a.matmul(inverse);
+const b = Matrix.from(2, 2, [
+  5, 6,
+  7, 8
+]);
 
-console.log("det(A)", a.determinant());
-console.table(identity.toArray());`}
+const product = a.matmul(b);
+
+console.table(product.toArray());`}
               >
               </wasmatrix-sandbox>
             </div>

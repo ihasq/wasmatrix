@@ -99,24 +99,18 @@ bun hello.ts
 ${content.firstProgramResult}
 
 <wasmatrix-sandbox code={\`const A = Matrix.from(2, 2, [
-  4, 7,
-  2, 6
+  1, 2,
+  3, 4
 ]);
 
-const b = Matrix.from(2, 1, [
-  1,
-  0
+const B = Matrix.from(2, 2, [
+  5, 6,
+  7, 8
 ]);
 
-const x = A.solve(b);
-const check = A.matmul(x);
+const C = A.matmul(B);
 
-console.log("det(A)", A.determinant());
-console.log("x");
-console.table(x.toArray());
-console.log("A * x");
-console.table(check.toArray());
-console.log("matches b", check.equalsApprox(b));\`}></wasmatrix-sandbox>
+console.table(C.toArray());\`}></wasmatrix-sandbox>
 
 ## ${content.createMatrices}
 
