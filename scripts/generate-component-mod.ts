@@ -258,6 +258,8 @@ const entries = parseInterface(interfaceBody);
 
 const output = [
   `// Generated from ${inputPath}. Do not edit directly.`,
+  'import * as core from "./wasmatrix";',
+  "",
   "declare namespace WasmatrixComponentWit {",
   `  export const packageId: "${packageMatch[1]}";`,
   `  export const interfaceName: "${interfaceName}";`,
@@ -279,6 +281,16 @@ entries.forEach((entry, index) => {
 });
 
 output.push("}", "");
+output.push(
+  "export function componentAbiVersion(): i32 {",
+  "  return core.abiVersion();",
+  "}",
+  "",
+  "export function executeCoreBatch(instructions: usize, count: i32): i32 {",
+  "  return core.executeBatch(instructions, count);",
+  "}",
+  "",
+);
 
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, output.join("\n"), "utf8");

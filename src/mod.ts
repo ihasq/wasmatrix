@@ -1,4 +1,6 @@
 // Generated from wit/wasmatrix.wit. Do not edit directly.
+import * as core from "./wasmatrix";
+
 declare namespace WasmatrixComponentWit {
   export const packageId: "ihasq:wasmatrix@0.1.0";
   export const interfaceName: "matrix-api";
@@ -72,4 +74,12 @@ declare namespace WasmatrixComponentWit {
     rank(epsilon: f64): Result<u32, MatrixError>;
     equalsApprox(other: Borrow<Matrix>, epsilon: f64): Result<bool, MatrixError>;
   }
+}
+
+export function componentAbiVersion(): i32 {
+  return core.abiVersion();
+}
+
+export function executeCoreBatch(instructions: usize, count: i32): i32 {
+  return core.executeBatch(instructions, count);
 }

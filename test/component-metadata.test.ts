@@ -15,6 +15,10 @@ test("component AssemblyScript declarations are generated from WIT", () => {
     new URL("../src/mod.ts", import.meta.url),
     "utf8",
   );
+  const componentWat = readFileSync(
+    new URL("../build/wasmatrix.component.wat", import.meta.url),
+    "utf8",
+  );
 
   assert.doesNotMatch(coreSource, /declare namespace WasmatrixComponentWit/);
   assert.match(wit, /^package ihasq:wasmatrix@0\.1\.0;/m);
@@ -24,10 +28,16 @@ test("component AssemblyScript declarations are generated from WIT", () => {
   assert.match(wit, /set: func\(row: u32, col: u32, value: f32\) -> result<_, matrix-error>;/);
   assert.match(wit, /world wasmatrix/);
   assert.match(generated, /^\/\/ Generated from wit\/wasmatrix\.wit/m);
+  assert.match(generated, /import \* as core from "\.\/wasmatrix";/);
   assert.match(generated, /declare namespace WasmatrixComponentWit/);
   assert.match(generated, /export class Matrix extends Resource/);
   assert.match(generated, /static zeros\(rows: u32, cols: u32\): Result<Matrix, MatrixError>;/);
   assert.match(generated, /set\(row: u32, col: u32, value: f32\): Result<void, MatrixError>;/);
+  assert.match(generated, /return core\.executeBatch\(instructions, count\);/);
+  assert.match(componentWat, /\(export "componentAbiVersion"/);
+  assert.match(componentWat, /\(export "executeCoreBatch"/);
+  assert.doesNotMatch(componentWat, /\(export "matmul"/);
+  assert.doesNotMatch(componentWat, /\(export "solve"/);
 });
 
 test("JavaScript adapter is generated from the transpileable index source", () => {
