@@ -38,7 +38,7 @@ async function run(command: string, args: string[], cwd: string) {
 await run(process.execPath, [
   "--import",
   oxcRegister,
-  resolve(repoRoot, "scripts/generate-component-wit.ts"),
+  resolve(repoRoot, "scripts/generate-component-mod.ts"),
 ], repoRoot);
 await run(process.execPath, [
   ascBin,

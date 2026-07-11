@@ -1,84 +1,14 @@
 const EPSILON: f64 = 1.0e-12;
-
-declare namespace WasmatrixComponentWit {
-  export const packageId: "ihasq:wasmatrix@0.1.0";
-  export const interfaceName: "matrix-api";
-  export const worldName: "wasmatrix";
-
-  export class Record {}
-  export class Variant {}
-  export class Resource {}
-  export class Result<T, E> {}
-  export class Borrow<T> {}
-  export class List<T> {}
-  export class Option<T> {}
-
-  export class Shape extends Record {
-    rows: u32;
-    cols: u32;
-  }
-
-  export enum MatrixError {
-    InvalidShape,
-    ShapeMismatch,
-    NotSquare,
-    IndexOutOfRange,
-    Singular,
-    Disposed,
-  }
-
-  export class Operand extends Variant {
-    scalar: f32;
-    matrix: Borrow<Matrix>;
-  }
-
-  export class Matrix extends Resource {
-    constructor(rows: u32, cols: u32, data: Option<List<f32>>);
-
-    static zeros(rows: u32, cols: u32): Result<Matrix, MatrixError>;
-    static ones(rows: u32, cols: u32): Result<Matrix, MatrixError>;
-    static identity(size: u32): Result<Matrix, MatrixError>;
-    static diagonal(values: List<f32>): Result<Matrix, MatrixError>;
-    static outer(left: List<f32>, right: List<f32>): Result<Matrix, MatrixError>;
-
-    shape(): Shape;
-    version(): u32;
-    at(row: u32, col: u32): Result<f32, MatrixError>;
-    set(row: u32, col: u32, value: f32): Result<void, MatrixError>;
-    clone(): Matrix;
-    toList(): List<f32>;
-
-    add(other: Operand): Result<Matrix, MatrixError>;
-    subtract(other: Operand): Result<Matrix, MatrixError>;
-    scale(value: f32): Matrix;
-    divide(other: Operand): Result<Matrix, MatrixError>;
-    hadamard(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
-    min(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
-    max(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
-    negate(): Matrix;
-    abs(): Matrix;
-    sqrt(): Matrix;
-    floor(): Matrix;
-    ceil(): Matrix;
-    clamp(minValue: f32, maxValue: f32): Result<Matrix, MatrixError>;
-
-    transpose(): Matrix;
-    matmul(other: Borrow<Matrix>): Result<Matrix, MatrixError>;
-    solve(rhs: Borrow<Matrix>): Result<Matrix, MatrixError>;
-    leastSquares(rhs: Borrow<Matrix>): Result<Matrix, MatrixError>;
-    inverse(): Result<Matrix, MatrixError>;
-
-    sum(): f64;
-    minValue(): f32;
-    maxValue(): f32;
-    trace(): f64;
-    frobeniusNorm(): f64;
-    determinant(): Result<f64, MatrixError>;
-    logDet(): Result<f64, MatrixError>;
-    rank(epsilon: f64): Result<u32, MatrixError>;
-    equalsApprox(other: Borrow<Matrix>, epsilon: f64): Result<bool, MatrixError>;
-  }
-}
+const BATCH_INSTRUCTION_I32_SLOTS: i32 = 8;
+const BATCH_OP_COPY: i32 = 1;
+const BATCH_OP_MATMUL: i32 = 2;
+const BATCH_OP_SOLVE: i32 = 3;
+const BATCH_OP_TRANSPOSE: i32 = 4;
+const BATCH_OP_DETERMINANT: i32 = 5;
+const BATCH_OP_EQUALS_APPROX: i32 = 6;
+const BATCH_OP_MATMUL_TN: i32 = 7;
+const BATCH_OP_MATMUL_NT: i32 = 8;
+const BATCH_OP_MATMUL_TT: i32 = 9;
 
 @inline
 function f32Offset(index: i32): usize {
@@ -118,6 +48,16 @@ function readI32(ptr: usize, index: i32): i32 {
 @inline
 function writeI32(ptr: usize, index: i32, value: i32): void {
   store<i32>(ptr + f32Offset(index), value);
+}
+
+@inline
+function batchOffset(instructions: usize, instruction: i32, slot: i32): usize {
+  return instructions + f32Offset(instruction * BATCH_INSTRUCTION_I32_SLOTS + slot);
+}
+
+@inline
+function readBatchI32(instructions: usize, instruction: i32, slot: i32): i32 {
+  return load<i32>(batchOffset(instructions, instruction, slot));
 }
 
 @inline
@@ -229,7 +169,7 @@ function dotSimd(a: usize, b: usize, length: i32): f32 {
 }
 
 export function abiVersion(): i32 {
-  return 6;
+  return 7;
 }
 
 export function simdProbe(): i32 {
@@ -254,6 +194,132 @@ export function allocI32(length: i32): usize {
 
 export function free(ptr: usize): void {
   heap.free(ptr);
+}
+
+export function batchInstructionI32Slots(): i32 {
+  return BATCH_INSTRUCTION_I32_SLOTS;
+}
+
+export function batchOpcodeCopy(): i32 {
+  return BATCH_OP_COPY;
+}
+
+export function batchOpcodeMatmul(): i32 {
+  return BATCH_OP_MATMUL;
+}
+
+export function batchOpcodeSolve(): i32 {
+  return BATCH_OP_SOLVE;
+}
+
+export function batchOpcodeTranspose(): i32 {
+  return BATCH_OP_TRANSPOSE;
+}
+
+export function batchOpcodeDeterminant(): i32 {
+  return BATCH_OP_DETERMINANT;
+}
+
+export function batchOpcodeEqualsApprox(): i32 {
+  return BATCH_OP_EQUALS_APPROX;
+}
+
+export function batchOpcodeMatmulTN(): i32 {
+  return BATCH_OP_MATMUL_TN;
+}
+
+export function batchOpcodeMatmulNT(): i32 {
+  return BATCH_OP_MATMUL_NT;
+}
+
+export function batchOpcodeMatmulTT(): i32 {
+  return BATCH_OP_MATMUL_TT;
+}
+
+export function executeBatch(instructions: usize, count: i32): i32 {
+  assert(count >= 0);
+
+  for (let i = 0; i < count; i++) {
+    let opcode = readBatchI32(instructions, i, 0);
+
+    if (opcode == BATCH_OP_COPY) {
+      copy(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        readBatchI32(instructions, i, 3),
+      );
+    } else if (opcode == BATCH_OP_MATMUL) {
+      matmul(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        <usize>readBatchI32(instructions, i, 3),
+        readBatchI32(instructions, i, 4),
+        readBatchI32(instructions, i, 5),
+        readBatchI32(instructions, i, 6),
+      );
+    } else if (opcode == BATCH_OP_SOLVE) {
+      let ok = solve(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        <usize>readBatchI32(instructions, i, 3),
+        readBatchI32(instructions, i, 4),
+        readBatchI32(instructions, i, 5),
+      );
+      if (ok != 1) return 0;
+    } else if (opcode == BATCH_OP_TRANSPOSE) {
+      transpose(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        readBatchI32(instructions, i, 3),
+        readBatchI32(instructions, i, 4),
+      );
+    } else if (opcode == BATCH_OP_DETERMINANT) {
+      let value = determinant(
+        <usize>readBatchI32(instructions, i, 1),
+        readBatchI32(instructions, i, 2),
+      );
+      store<f64>(<usize>readBatchI32(instructions, i, 3), value);
+    } else if (opcode == BATCH_OP_EQUALS_APPROX) {
+      let result = equalsApprox(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        readBatchI32(instructions, i, 3),
+        load<f64>(<usize>readBatchI32(instructions, i, 4)),
+      );
+      store<i32>(<usize>readBatchI32(instructions, i, 5), result);
+    } else if (opcode == BATCH_OP_MATMUL_TN) {
+      matmulTN(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        <usize>readBatchI32(instructions, i, 3),
+        readBatchI32(instructions, i, 4),
+        readBatchI32(instructions, i, 5),
+        readBatchI32(instructions, i, 6),
+      );
+    } else if (opcode == BATCH_OP_MATMUL_NT) {
+      matmulNT(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        <usize>readBatchI32(instructions, i, 3),
+        readBatchI32(instructions, i, 4),
+        readBatchI32(instructions, i, 5),
+        readBatchI32(instructions, i, 6),
+      );
+    } else if (opcode == BATCH_OP_MATMUL_TT) {
+      matmulTT(
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        <usize>readBatchI32(instructions, i, 3),
+        readBatchI32(instructions, i, 4),
+        readBatchI32(instructions, i, 5),
+        readBatchI32(instructions, i, 6),
+      );
+    } else {
+      return -opcode;
+    }
+  }
+
+  return 1;
 }
 
 export function fill(out: usize, length: i32, value: f32): void {

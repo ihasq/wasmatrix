@@ -237,10 +237,12 @@ deno task test:e2e
 deno task benchmark
 ```
 
-`deno task build` generates the WIT metadata and ESM adapter from
-`wasmatrix.ts`, compiles the same AssemblyScript source with SIMD enabled, emits
-`build/wasmatrix.wasm` and `build/wasmatrix.wat`, then writes `dist/index.js`,
-`dist/index.d.ts`, `dist/wasmatrix.wasm`, and `dist/wasmatrix.wit`.
+`deno task build` generates the Component Model AssemblyScript declarations in
+`src/mod.ts` from `wit/wasmatrix.wit`, generates the ESM adapter from
+`src/index.ts`, compiles the core AssemblyScript source `src/wasmatrix.ts` with
+SIMD enabled, emits `build/wasmatrix.wasm` and `build/wasmatrix.wat`, then writes
+`dist/index.js`, `dist/index.d.ts`, `dist/wasmatrix.wasm`, and
+`dist/wasmatrix.wit`.
 
 `deno task test` runs unit tests and E2E transparency tests.
 `deno task coverage` writes `coverage/lcov.info`; CI derives

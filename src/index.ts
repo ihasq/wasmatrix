@@ -39,6 +39,14 @@ const MATMUL_NN = "NN";
 const MATMUL_TN = "TN";
 const MATMUL_NT = "NT";
 const MATMUL_TT = "TT";
+const SMALL_LINALG_DIRECT_MAX_SIZE = 2;
+const MIN_BUFFER_CACHE_BYTES = 64 * 1024;
+const BATCH_INSTRUCTION_I32_SLOTS = 8;
+const BATCH_OP_MATMUL = 2;
+const BATCH_OP_SOLVE = 3;
+const BATCH_OP_MATMUL_TN = 7;
+const BATCH_OP_MATMUL_NT = 8;
+const BATCH_OP_MATMUL_TT = 9;
 
 let defaultRuntime: any = null;
 let nextRuntimeId = 1;
@@ -166,9 +174,10 @@ function instantiateRuntime(wasmBytes: WasmBytes) {
     throw new Error("wasmatrix SIMD probe failed");
   }
   const abiVersion = runtime.call("abiVersion");
-  if (abiVersion !== 6) {
+  if (abiVersion !== 7) {
     throw new Error(`Unsupported wasmatrix ABI version: ${abiVersion}`);
   }
+  runtime.primeBatch();
   /* c8 ignore stop */
 
   return runtime;
@@ -211,6 +220,8 @@ class WasmRuntime {
   #exports;
   f64ScratchPtr;
   f64ScratchLength;
+  i32ScratchPtr;
+  i32ScratchLength;
   cacheLimitBytes;
   cacheBytes;
   cacheEntries;
@@ -221,6 +232,8 @@ class WasmRuntime {
     this.#exports = exports;
     this.f64ScratchPtr = 0;
     this.f64ScratchLength = 0;
+    this.i32ScratchPtr = 0;
+    this.i32ScratchLength = 0;
     this.cacheLimitBytes = optimizationOptions.cacheLimitBytes;
     this.cacheBytes = 0;
     this.cacheEntries = new Map();
@@ -263,6 +276,10 @@ class WasmRuntime {
     return this.call("allocI32", length);
   }
 
+  primeBatch() {
+    this.i32Scratch(BATCH_INSTRUCTION_I32_SLOTS * 32);
+  }
+
   f64Scratch(length) {
     assertNonNegativeInteger(length, "length");
     if (length > this.f64ScratchLength) {
@@ -271,6 +288,34 @@ class WasmRuntime {
       this.f64ScratchLength = length;
     }
     return this.f64ScratchPtr;
+  }
+
+  i32Scratch(length) {
+    assertNonNegativeInteger(length, "length");
+    if (length > this.i32ScratchLength) {
+      this.free(this.i32ScratchPtr);
+      this.i32ScratchPtr = this.call("allocI32", length);
+      this.i32ScratchLength = length;
+    }
+    return this.i32ScratchPtr;
+  }
+
+  executeBatch(instructions) {
+    const slots = instructions.length * BATCH_INSTRUCTION_I32_SLOTS;
+    const ptr = this.i32Scratch(slots);
+    const memory = this.i32;
+    const start = ptr >>> 2;
+
+    memory.fill(0, start, start + slots);
+    for (let i = 0; i < instructions.length; i++) {
+      const base = start + i * BATCH_INSTRUCTION_I32_SLOTS;
+      const instruction = instructions[i];
+      for (let slot = 0; slot < instruction.length; slot++) {
+        memory[base + slot] = instruction[slot];
+      }
+    }
+
+    return this.call("executeBatch", ptr, instructions.length);
   }
 
   free(ptr) {
@@ -337,6 +382,7 @@ class WasmRuntime {
 
   putCachedBuffer(key, sourcePtr, length) {
     const bytes = length << 2;
+    if (bytes < MIN_BUFFER_CACHE_BYTES) return;
     if (bytes > this.cacheLimitBytes / 4) return;
 
     const existing = this.bufferCache.get(key);
@@ -403,6 +449,10 @@ export class Matrix {
   #transposeOf = null;
   #expr = null;
   #matmulOf = null;
+  #solveOf = null;
+  #literalData = null;
+  #literalFill = null;
+  #literalIdentity = false;
   #affineScale = 1;
   #affineBias = 0;
   #structure = "dense";
@@ -438,6 +488,7 @@ export class Matrix {
       || options.transposeOf != null
       || options.expr != null
       || options.matmulOf != null
+      || options.solveOf != null
     ) {
       this.#ptr = 0;
       this.#owns = false;
@@ -446,6 +497,7 @@ export class Matrix {
       this.#transposeOf = options.transposeOf ?? null;
       this.#expr = options.expr ?? null;
       this.#matmulOf = options.matmulOf ?? null;
+      this.#solveOf = options.solveOf ?? null;
       this.#affineScale = options.affineScale ?? 1;
       this.#affineBias = options.affineBias ?? 0;
     } else {
@@ -456,15 +508,20 @@ export class Matrix {
         }
       }
 
-      this.#ptr = this.#runtime.alloc(length);
+      this.#ptr = 0;
+      this.#owns = false;
       if (data == null) {
-        this.#runtime.call("fill", this.#ptr, length, 0);
+        if (options.identity === true) {
+          this.#literalIdentity = true;
+        } else {
+          this.#literalFill = options.fillValue ?? 0;
+        }
       } else {
-        this.#runtime.writeInto(this.#ptr, data);
+        this.#literalData = new Float32Array(toFloat32Array(data, "data"));
       }
     }
 
-    if (this.#owns) {
+    if (this.#owns && this.#ptr) {
       matrixFinalizer?.register(this, { runtime: this.#runtime, ptr: this.#ptr }, this);
     }
   }
@@ -582,27 +639,20 @@ export class Matrix {
   }
 
   static zeros(rows, cols) {
-    return new Matrix(rows, cols, null, { structure: "zero" });
+    return new Matrix(rows, cols, null, { structure: "zero", fillValue: 0 });
   }
 
   static ones(rows, cols) {
     assertPositiveInteger(rows, "rows");
     assertPositiveInteger(cols, "cols");
 
-    const runtime = getRuntime();
-    const length = sizeOf(rows, cols);
-    const ptr = runtime.alloc(length);
-    runtime.call("fill", ptr, length, 1);
-    return new Matrix(rows, cols, null, { runtime, ptr, structure: "ones" });
+    return new Matrix(rows, cols, null, { structure: "ones", fillValue: 1 });
   }
 
   static identity(size) {
     assertPositiveInteger(size, "size");
 
-    const runtime = getRuntime();
-    const ptr = runtime.alloc(size * size);
-    runtime.call("identity", ptr, size);
-    return new Matrix(size, size, null, { runtime, ptr, structure: "identity" });
+    return new Matrix(size, size, null, { structure: "identity", identity: true });
   }
 
   static diagonal(values) {
@@ -762,6 +812,8 @@ export class Matrix {
 
   get data() {
     this.#assertAlive();
+    const local = this.#localDataSnapshot();
+    if (local != null) return local;
     return this.#runtime.read(this.#materializedPtr(), this.length);
   }
 
@@ -784,6 +836,13 @@ export class Matrix {
     this.#transposeOf = null;
     this.#expr = null;
     this.#matmulOf = null;
+    if (this.#solveOf?.temporaryRight) {
+      this.#solveOf.right.dispose();
+    }
+    this.#solveOf = null;
+    this.#literalData = null;
+    this.#literalFill = null;
+    this.#literalIdentity = false;
     this.#disposed = true;
   }
 
@@ -793,6 +852,11 @@ export class Matrix {
 
   clone() {
     this.#assertAlive();
+    const local = this.#localDataSnapshot();
+    if (local != null) {
+      return new Matrix(this.rows, this.cols, local, { runtime: this.#runtime, structure: this.#structure });
+    }
+
     const ptr = this.#runtime.alloc(this.length);
     this.#runtime.call("copy", this.#materializedPtr(), ptr, this.length);
     return Matrix.#fromWasm(this.rows, this.cols, this.#runtime, ptr);
@@ -800,17 +864,27 @@ export class Matrix {
 
   at(row, col) {
     this.#assertIndex(row, col);
+    const local = this.#localDataSnapshot();
+    if (local != null) {
+      return local[row * this.cols + col];
+    }
     return this.#runtime.readValue(this.#materializedPtr(), row * this.cols + col);
   }
 
   set(row, col, value) {
     this.#assertIndex(row, col);
     assertFiniteNumber(value, "value");
-    this.#runtime.writeValue(this.#materializedPtr(), row * this.cols + col, value);
+    const local = this.#mutableLocalData();
+    if (local != null) {
+      local[row * this.cols + col] = value;
+    } else {
+      this.#runtime.writeValue(this.#materializedPtr(), row * this.cols + col, value);
+    }
     this.#version++;
     this.#clearComputedCaches();
     this.#expr = null;
     this.#matmulOf = null;
+    this.#solveOf = null;
     this.#structure = "dense";
     return this;
   }
@@ -820,6 +894,10 @@ export class Matrix {
     assertInteger(index, "index");
     if (index < 0 || index >= this.rows) {
       throw new RangeError("row index is out of range");
+    }
+    const local = this.#localDataSnapshot();
+    if (local != null) {
+      return new Float32Array(local.subarray(index * this.cols, (index + 1) * this.cols));
     }
     const start = (this.#materializedPtr() >>> 2) + index * this.cols;
     return new Float32Array(this.#runtime.f32.subarray(start, start + this.cols));
@@ -832,6 +910,14 @@ export class Matrix {
       throw new RangeError("column index is out of range");
     }
     const out = new Float32Array(this.rows);
+    const local = this.#localDataSnapshot();
+    if (local != null) {
+      for (let r = 0; r < this.rows; r++) {
+        out[r] = local[r * this.cols + index];
+      }
+      return out;
+    }
+
     const memory = this.#runtime.f32;
     const base = this.#materializedPtr() >>> 2;
     for (let r = 0; r < this.rows; r++) {
@@ -848,6 +934,16 @@ export class Matrix {
     }
 
     const length = Math.min(this.rows, this.cols);
+    const local = this.#localDataSnapshot();
+    if (local != null) {
+      const value = new Float32Array(length);
+      for (let i = 0; i < length; i++) {
+        value[i] = local[i * this.cols + i];
+      }
+      this.#diagonalCache = { version: this.#version, value };
+      return new Float32Array(value);
+    }
+
     const ptr = this.#runtime.alloc(length);
     try {
       this.#runtime.call("diagonal", this.#materializedPtr(), ptr, this.rows, this.cols);
@@ -866,6 +962,11 @@ export class Matrix {
     if (sizeOf(rows, cols) !== this.length) {
       throw new RangeError("reshape must preserve element count");
     }
+    const local = this.#localDataSnapshot();
+    if (local != null) {
+      return new Matrix(rows, cols, local, { runtime: this.#runtime, structure: this.#structure });
+    }
+
     const ptr = this.#runtime.alloc(this.length);
     this.#runtime.call("copy", this.#materializedPtr(), ptr, this.length);
     return Matrix.#fromWasm(rows, cols, this.#runtime, ptr);
@@ -1199,6 +1300,12 @@ export class Matrix {
       return value;
     }
 
+    if (this.rows <= SMALL_LINALG_DIRECT_MAX_SIZE) {
+      value = this.#runtime.call("determinant", this.#materializedPtr(), this.rows);
+      this.#setCachedReduction("determinant", value);
+      return value;
+    }
+
     const cholesky = this.#choleskyFactor();
     if (cholesky != null) {
       value = this.#runtime.call("choleskyDeterminant", cholesky.lowerPtr, this.rows);
@@ -1278,51 +1385,14 @@ export class Matrix {
       throw new RangeError(`right-hand side rows ${right.rows} must match ${this.rows}`);
     }
 
-    let ptr = 0;
-    try {
-      if (this.#structure === "diagonal") {
-        const rhsPtr = right.#materializedPtr();
-        ptr = this.#runtime.alloc(right.length);
-        const ok = this.#runtime.call("solveDiagonal", this.#materializedPtr(), rhsPtr, ptr, this.rows, right.cols);
-        if (ok !== 1) {
-          throw new RangeError("matrix is singular");
-        }
-        return Matrix.#fromWasm(this.rows, right.cols, this.#runtime, ptr);
+    return new Matrix(this.rows, right.cols, null, {
+      runtime: this.#runtime,
+      solveOf: {
+        left: this,
+        right,
+        temporaryRight: !rhsIsMatrix
       }
-
-      const cholesky = this.#choleskyFactor();
-      if (cholesky != null) {
-        const rhsPtr = right.#materializedPtr();
-        ptr = this.#runtime.alloc(right.length);
-        const work = this.#runtime.f64Scratch(this.rows * right.cols);
-        const ok = this.#runtime.call("choleskySolve", cholesky.lowerPtr, rhsPtr, ptr, this.rows, right.cols, work);
-        /* c8 ignore next 3 */
-        if (ok !== 1) {
-          throw new RangeError("matrix is singular");
-        }
-        return Matrix.#fromWasm(this.rows, right.cols, this.#runtime, ptr);
-      }
-
-      const factor = this.#luFactor();
-      if (factor == null) {
-        throw new RangeError("matrix is singular");
-      }
-
-      const rhsPtr = right.#materializedPtr();
-      ptr = this.#runtime.alloc(right.length);
-      const work = this.#runtime.f64Scratch(this.rows * right.cols);
-      const ok = this.#runtime.call("luSolve", factor.luPtr, factor.pivotsPtr, rhsPtr, ptr, this.rows, right.cols, work);
-      /* c8 ignore next 3 */
-      if (ok !== 1) {
-        throw new RangeError("matrix is singular");
-      }
-      return Matrix.#fromWasm(this.rows, right.cols, this.#runtime, ptr);
-    } catch (error) {
-      this.#runtime.free(ptr);
-      throw error;
-    } finally {
-      if (!rhsIsMatrix) right.dispose();
-    }
+    });
   }
 
   leastSquares(rhs) {
@@ -1431,6 +1501,10 @@ export class Matrix {
 
     if (this.#inverseOf != null) {
       return `inverse:${this.rows}x${this.cols}:${this.#inverseOf.#valueKey()}`;
+    }
+
+    if (this.#solveOf != null) {
+      return `solve:${this.rows}x${this.cols}:${this.#solveOf.left.#valueKey()}:${this.#solveOf.right.#valueKey()}`;
     }
 
     if (this.#base != null) {
@@ -1756,6 +1830,7 @@ export class Matrix {
       && this.#inverseOf == null
       && this.#expr == null
       && this.#matmulOf == null
+      && this.#solveOf == null
     ) {
       return { source: this.#transposeOf, transposed: true };
     }
@@ -1807,6 +1882,68 @@ export class Matrix {
 
     const product = left.matmul(right);
     return factor === 1 ? product : product.scale(factor);
+  }
+
+  #localDataSnapshot() {
+    if (this.#literalData != null) {
+      return new Float32Array(this.#literalData);
+    }
+
+    if (this.#literalFill != null) {
+      const data = new Float32Array(this.length);
+      if (this.#literalFill !== 0) data.fill(this.#literalFill);
+      return data;
+    }
+
+    if (this.#literalIdentity) {
+      const data = new Float32Array(this.length);
+      const stride = this.cols + 1;
+      for (let i = 0; i < this.rows; i++) {
+        data[i * stride] = 1;
+      }
+      return data;
+    }
+
+    return null;
+  }
+
+  #mutableLocalData() {
+    if (this.#literalData != null) return this.#literalData;
+    if (this.#literalFill == null && !this.#literalIdentity) return null;
+
+    const data = this.#localDataSnapshot();
+    this.#literalData = data;
+    this.#literalFill = null;
+    this.#literalIdentity = false;
+    return data;
+  }
+
+  #materializeLocal(ptr) {
+    if (this.#literalData != null) {
+      this.#runtime.writeInto(ptr, this.#literalData);
+      this.#literalData = null;
+      return true;
+    }
+
+    if (this.#literalFill != null) {
+      this.#runtime.f32.fill(this.#literalFill, ptr >>> 2, (ptr >>> 2) + this.length);
+      this.#literalFill = null;
+      return true;
+    }
+
+    if (this.#literalIdentity) {
+      const memory = this.#runtime.f32;
+      const start = ptr >>> 2;
+      memory.fill(0, start, start + this.length);
+      const stride = this.cols + 1;
+      for (let i = 0; i < this.rows; i++) {
+        memory[start + i * stride] = 1;
+      }
+      this.#literalIdentity = false;
+      return true;
+    }
+
+    return false;
   }
 
   #materializeExpression(ptr) {
@@ -1906,19 +2043,129 @@ export class Matrix {
 
     const rightPtr = right.#materializedPtr();
     if (variant === MATMUL_TN) {
-      this.#runtime.call("matmulTN", leftPtr, rightPtr, ptr, left.rows, left.cols, right.cols);
+      this.#runtime.executeBatch([[
+        BATCH_OP_MATMUL_TN,
+        leftPtr,
+        rightPtr,
+        ptr,
+        left.rows,
+        left.cols,
+        right.cols
+      ]]);
     } else if (variant === MATMUL_NT) {
-      this.#runtime.call("matmulNT", leftPtr, rightPtr, ptr, left.rows, left.cols, right.rows);
+      this.#runtime.executeBatch([[
+        BATCH_OP_MATMUL_NT,
+        leftPtr,
+        rightPtr,
+        ptr,
+        left.rows,
+        left.cols,
+        right.rows
+      ]]);
     } else if (variant === MATMUL_TT) {
-      this.#runtime.call("matmulTT", leftPtr, rightPtr, ptr, left.rows, left.cols, right.rows);
+      this.#runtime.executeBatch([[
+        BATCH_OP_MATMUL_TT,
+        leftPtr,
+        rightPtr,
+        ptr,
+        left.rows,
+        left.cols,
+        right.rows
+      ]]);
     } else {
       const cost = left.rows * left.cols * right.cols;
       right.#rightMatmulUses++;
       if ((right.#packedCache != null || right.#rightMatmulUses > 1) && cost >= 262_144) {
         this.#runtime.call("matmulPackedB", leftPtr, right.#packedMatmulPtr(), ptr, left.rows, left.cols, right.cols);
       } else {
-        this.#runtime.call("matmul", leftPtr, rightPtr, ptr, left.rows, left.cols, right.cols);
+        this.#runtime.executeBatch([[
+          BATCH_OP_MATMUL,
+          leftPtr,
+          rightPtr,
+          ptr,
+          left.rows,
+          left.cols,
+          right.cols
+        ]]);
       }
+    }
+  }
+
+  #materializeSolve(ptr) {
+    const solve = this.#solveOf;
+    const { left, right, temporaryRight } = solve;
+    left.#assertSquare("solve");
+    right.#assertAlive();
+    left.#assertSameRuntime(right);
+    if (right.rows !== left.rows) {
+      throw new RangeError(`right-hand side rows ${right.rows} must match ${left.rows}`);
+    }
+
+    try {
+      if (left.#structure === "diagonal") {
+        const ok = this.#runtime.call("solveDiagonal",
+          left.#materializedPtr(),
+          right.#materializedPtr(),
+          ptr,
+          left.rows,
+          right.cols
+        );
+        if (ok !== 1) {
+          throw new RangeError("matrix is singular");
+        }
+      } else if (left.rows <= SMALL_LINALG_DIRECT_MAX_SIZE) {
+        const ok = this.#runtime.executeBatch([[
+          BATCH_OP_SOLVE,
+          left.#materializedPtr(),
+          right.#materializedPtr(),
+          ptr,
+          left.rows,
+          right.cols
+        ]]);
+        if (ok !== 1) {
+          throw new RangeError("matrix is singular");
+        }
+      } else {
+        const cholesky = left.#choleskyFactor();
+        if (cholesky != null) {
+          const work = this.#runtime.f64Scratch(left.rows * right.cols);
+          const ok = this.#runtime.call("choleskySolve",
+            cholesky.lowerPtr,
+            right.#materializedPtr(),
+            ptr,
+            left.rows,
+            right.cols,
+            work
+          );
+          /* c8 ignore next 3 */
+          if (ok !== 1) {
+            throw new RangeError("matrix is singular");
+          }
+        } else {
+          const factor = left.#luFactor();
+          if (factor == null) {
+            throw new RangeError("matrix is singular");
+          }
+
+          const work = this.#runtime.f64Scratch(left.rows * right.cols);
+          const ok = this.#runtime.call("luSolve",
+            factor.luPtr,
+            factor.pivotsPtr,
+            right.#materializedPtr(),
+            ptr,
+            left.rows,
+            right.cols,
+            work
+          );
+          /* c8 ignore next 3 */
+          if (ok !== 1) {
+            throw new RangeError("matrix is singular");
+          }
+        }
+      }
+    } finally {
+      this.#solveOf = null;
+      if (temporaryRight) right.dispose();
     }
   }
 
@@ -1939,7 +2186,9 @@ export class Matrix {
 
     const ptr = this.#runtime.alloc(this.length);
 
-    if (this.#inverseOf != null) {
+    if (this.#materializeLocal(ptr)) {
+      // Local JS literals are copied into WASM memory only at the first boundary call.
+    } else if (this.#inverseOf != null) {
       this.#inverseOf.#assertAlive();
       this.#assertSameRuntime(this.#inverseOf);
       const cholesky = this.#inverseOf.#choleskyFactor();
@@ -1972,6 +2221,8 @@ export class Matrix {
       this.#materializeExpression(ptr);
     } else if (this.#matmulOf != null) {
       this.#materializeMatmul(ptr);
+    } else if (this.#solveOf != null) {
+      this.#materializeSolve(ptr);
     } else if (this.#transposeOf != null) {
       this.#transposeOf.#assertAlive();
       this.#assertSameRuntime(this.#transposeOf);

@@ -199,13 +199,13 @@ test("coverage: singular, structural and cached linear algebra paths", () => {
   );
 
   assert.throws(() => Matrix.diagonal([1, 0]).inverse(), /singular/);
-  assert.throws(() => Matrix.diagonal([1, 0]).solve([1, 2]), /singular/);
+  assert.throws(() => Matrix.diagonal([1, 0]).solve([1, 2]).toArray(), /singular/);
   assert.throws(
     () => Matrix.from(2, 2, [1, 2, 2, 4]).inverse().toArray(),
     /singular/,
   );
   assert.throws(
-    () => Matrix.from(2, 2, [1, 2, 2, 4]).solve([1, 1]),
+    () => Matrix.from(2, 2, [1, 2, 2, 4]).solve([1, 1]).toArray(),
     /singular/,
   );
   assert.throws(

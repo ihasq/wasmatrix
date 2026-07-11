@@ -27,6 +27,8 @@ test("requires a SIMD-capable wasm build", () => {
   );
   assert.match(wat, /f32x4\.(add|mul|div|sqrt)/);
   assert.match(wat, /v128\.load/);
+  assert.match(wat, /\(export "executeBatch"/);
+  assert.match(wat, /\(export "batchOpcodeMatmul"/);
 });
 
 test("constructs matrices and exposes row-major data", () => {
@@ -57,6 +59,62 @@ test("keeps matrix results in WASM until explicit readback", () => {
 
   result.dispose();
   assert.throws(() => result.at(0, 0), /disposed/);
+});
+
+test("uses the minimum WASM boundary calls for the getting started workflow", () => {
+  const key = Symbol.for("wasmatrix.wasmCallListeners");
+  const previous = globalThis[key];
+  const calls = [];
+  globalThis[key] = new Set([(name) => calls.push(name)]);
+
+  try {
+    const A = Matrix.from(2, 2, [4, 7, 2, 6]);
+    const b = Matrix.from(2, 1, [1, 0]);
+    const x = A.solve(b);
+    const check = A.matmul(x);
+
+    assert.deepEqual(calls, []);
+    assert.ok(Math.abs(A.determinant() - 10) < 1e-6);
+    assert.deepEqual(calls, ["allocF32", "determinant"]);
+
+    assertArrayAlmostEqual(x.toFlatArray(), [0.6, -0.2], 1e-5);
+    assert.deepEqual(calls, [
+      "allocF32",
+      "determinant",
+      "allocF32",
+      "allocF32",
+      "executeBatch",
+    ]);
+
+    assertArrayAlmostEqual(check.toFlatArray(), [1, 0], 1e-5);
+    assert.deepEqual(calls, [
+      "allocF32",
+      "determinant",
+      "allocF32",
+      "allocF32",
+      "executeBatch",
+      "allocF32",
+      "executeBatch",
+    ]);
+
+    assert.equal(check.equalsApprox(b), true);
+    assert.deepEqual(calls, [
+      "allocF32",
+      "determinant",
+      "allocF32",
+      "allocF32",
+      "executeBatch",
+      "allocF32",
+      "executeBatch",
+      "equalsApprox",
+    ]);
+  } finally {
+    if (previous === undefined) {
+      delete globalThis[key];
+    } else {
+      globalThis[key] = previous;
+    }
+  }
 });
 
 test("runs SIMD elementwise and scalar operations", () => {
