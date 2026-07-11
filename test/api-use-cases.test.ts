@@ -51,6 +51,7 @@ const EXPECTED_MATRIX_API = [
   "Matrix#rank",
   "Matrix#reshape",
   "Matrix#row",
+  "Matrix#rowView",
   "Matrix#scale",
   "Matrix#set",
   "Matrix#shape",
@@ -59,8 +60,10 @@ const EXPECTED_MATRIX_API = [
   "Matrix#subtract",
   "Matrix#sum",
   "Matrix#toArray",
+  "Matrix#toArrayView",
   "Matrix#toFlatArray",
   "Matrix#toFloat32Array",
+  "Matrix#toFloat32ArrayView",
   "Matrix#toString",
   "Matrix#trace",
   "Matrix#transpose",
@@ -139,6 +142,7 @@ test("API use cases perform real calculations across every Matrix method", () =>
   assertAlmostEqual(call(measurements, "at", 0, 0), 2.2);
   assertAlmostEqual(call(frozenMeasurements, "at", 0, 0), 1.2);
   assertArrayAlmostEqual(call(measurements, "row", 1), [4.1, 0, -3.3]);
+  assertArrayAlmostEqual(call(measurements, "rowView", 1), [4.1, 0, -3.3]);
   assertArrayAlmostEqual(call(measurements, "column", 1), [-1.8, 0]);
   assertArrayAlmostEqual(call(measurements, "diagonal"), [2.2, 0]);
   assertMatrixAlmostEqual(
@@ -148,6 +152,11 @@ test("API use cases perform real calculations across every Matrix method", () =>
     [2.2, -1.8, 2.5, 4.1, 0, -3.3],
   );
   assertArrayAlmostEqual(call(measurements, "toFloat32Array"), [2.2, -1.8, 2.5, 4.1, 0, -3.3]);
+  assertArrayAlmostEqual(call(measurements, "toFloat32ArrayView"), [2.2, -1.8, 2.5, 4.1, 0, -3.3]);
+  assert.deepEqual(call(measurements, "toArrayView").map((row) => Array.from(row)), [
+    [2.2, -1.8, 2.5],
+    [4.1, 0, -3.3],
+  ]);
   assert.deepEqual(call(callStatic("from", 2, 2, [1, 2, 3, 4]), "toArray"), [
     [1, 2],
     [3, 4],

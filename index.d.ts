@@ -249,6 +249,15 @@ export class Matrix {
   /** Copies one row into a JavaScript `Float32Array`. */
   row(index: number): Float32Array;
 
+  /**
+   * Returns a zero-copy view of one contiguous row in WASM memory.
+   *
+   * @remarks
+   * Mutating the returned view mutates the matrix buffer. The view can be
+   * invalidated if the underlying WebAssembly memory grows.
+   */
+  rowView(index: number): Float32Array;
+
   /** Copies one column into a JavaScript `Float32Array`. */
   column(index: number): Float32Array;
 
@@ -270,11 +279,29 @@ export class Matrix {
   /** Copies matrix contents into a JavaScript `Float32Array`. */
   toFloat32Array(): Float32Array;
 
+  /**
+   * Returns a zero-copy row-major `Float32Array` view in WASM memory.
+   *
+   * @remarks
+   * Mutating the returned view mutates the matrix buffer. The view can be
+   * invalidated if the underlying WebAssembly memory grows.
+   */
+  toFloat32ArrayView(): Float32Array;
+
   /** Copies matrix contents into a row-major JavaScript number array. */
   toFlatArray(): number[];
 
   /** Copies matrix contents into nested JavaScript row arrays. */
   toArray(): number[][];
+
+  /**
+   * Returns zero-copy row views over the matrix's WASM memory.
+   *
+   * @remarks
+   * The returned outer JavaScript array is new, while each row is a
+   * `Float32Array` view into the same matrix buffer.
+   */
+  toArrayView(): Float32Array[];
 
   /**
    * Adds a scalar, full matrix, row vector, or column vector.

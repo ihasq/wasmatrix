@@ -339,6 +339,21 @@ Copies one row into a JavaScript `Float32Array`.
 | --------- | -------- | ----------- |
 | `index`   | `number` | -           |
 
+### `rowView(index)`
+
+```ts
+rowView(index: number): Float32Array
+```
+
+Returns a zero-copy view of one contiguous row in WASM memory.
+
+| Parameter | Type     | Description |
+| --------- | -------- | ----------- |
+| `index`   | `number` | -           |
+
+**Remarks:** Mutating the returned view mutates the matrix buffer. The view can
+be invalidated if the underlying WebAssembly memory grows.
+
 ### `column(index)`
 
 ```ts
@@ -384,6 +399,17 @@ toFloat32Array(): Float32Array
 
 Copies matrix contents into a JavaScript `Float32Array`.
 
+### `toFloat32ArrayView()`
+
+```ts
+toFloat32ArrayView(): Float32Array
+```
+
+Returns a zero-copy row-major `Float32Array` view in WASM memory.
+
+**Remarks:** Mutating the returned view mutates the matrix buffer. The view can
+be invalidated if the underlying WebAssembly memory grows.
+
 ### `toFlatArray()`
 
 ```ts
@@ -399,6 +425,17 @@ toArray(): number[][]
 ```
 
 Copies matrix contents into nested JavaScript row arrays.
+
+### `toArrayView()`
+
+```ts
+toArrayView(): Float32Array<ArrayBufferLike>[]
+```
+
+Returns zero-copy row views over the matrix's WASM memory.
+
+**Remarks:** The returned outer JavaScript array is new, while each row is a
+`Float32Array` view into the same matrix buffer.
 
 ## Elementwise Operations
 

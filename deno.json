@@ -19,7 +19,7 @@
     "build:dist": "deno run -A scripts/prepare-dist.ts build/wasmatrix.wasm",
     "build:debug": "deno task generate && deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.json --target debug && deno task build:ts && deno run -A scripts/prepare-dist.ts build/wasmatrix.debug.wasm",
     "build:component:debug": "deno task generate:component && deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.component.json --target debug",
-    "test": "deno task build && deno task build:component && deno test -A test/wasmatrix.test.ts test/component-metadata.test.ts",
+    "test": "deno task build && deno task build:component && deno test -A test/wasmatrix.test.ts test/component-metadata.test.ts test/typed-array-view.test.ts",
     "coverage": "deno task build && deno task build:component && deno run -A scripts/run-coverage.ts",
     "coverage:codecov": "deno task coverage && deno run -A scripts/prepare-codecov-lcov.ts",
     "test:e2e": "deno task benchmark:routes",

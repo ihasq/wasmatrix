@@ -233,6 +233,9 @@ function getRuntime() {
 class WasmRuntime {
   id;
   #exports;
+  #memoryBuffer;
+  #f32;
+  #i32;
   f64ScratchPtr;
   f64ScratchLength;
   i32ScratchPtr;
@@ -245,6 +248,9 @@ class WasmRuntime {
   constructor(exports) {
     this.id = nextRuntimeId++;
     this.#exports = exports;
+    this.#memoryBuffer = null;
+    this.#f32 = null;
+    this.#i32 = null;
     this.f64ScratchPtr = 0;
     this.f64ScratchLength = 0;
     this.i32ScratchPtr = 0;
@@ -268,12 +274,23 @@ class WasmRuntime {
     return this.#exports.memory;
   }
 
+  #refreshViews() {
+    const buffer = this.memory.buffer;
+    if (this.#memoryBuffer !== buffer) {
+      this.#memoryBuffer = buffer;
+      this.#f32 = new Float32Array(buffer);
+      this.#i32 = new Int32Array(buffer);
+    }
+  }
+
   get f32() {
-    return new Float32Array(this.memory.buffer);
+    this.#refreshViews();
+    return this.#f32;
   }
 
   get i32() {
-    return new Int32Array(this.memory.buffer);
+    this.#refreshViews();
+    return this.#i32;
   }
 
   alloc(length) {
@@ -437,7 +454,12 @@ class WasmRuntime {
   }
 
   read(ptr, length) {
-    return new Float32Array(this.f32.subarray(ptr >>> 2, (ptr >>> 2) + length));
+    return new Float32Array(this.viewF32(ptr, length));
+  }
+
+  viewF32(ptr, length) {
+    const start = ptr >>> 2;
+    return this.f32.subarray(start, start + length);
   }
 
   readValue(ptr, index) {
@@ -842,6 +864,10 @@ export class Matrix {
     return this.#runtime.read(this.#materializedPtr(), this.length);
   }
 
+  #dataView() {
+    return this.#runtime.viewF32(this.#materializedPtr(), this.length);
+  }
+
   get byteOffset() {
     this.#assertAlive();
     return this.#materializedPtr();
@@ -948,6 +974,15 @@ export class Matrix {
     return new Float32Array(this.#runtime.f32.subarray(start, start + this.cols));
   }
 
+  rowView(index) {
+    this.#assertAlive();
+    assertInteger(index, "index");
+    if (index < 0 || index >= this.rows) {
+      throw new RangeError("row index is out of range");
+    }
+    return this.#runtime.viewF32(this.#materializedPtr() + index * this.cols * Float32Array.BYTES_PER_ELEMENT, this.cols);
+  }
+
   column(index) {
     this.#assertAlive();
     assertInteger(index, "index");
@@ -1021,6 +1056,11 @@ export class Matrix {
     return this.data;
   }
 
+  toFloat32ArrayView() {
+    this.#assertAlive();
+    return this.#dataView();
+  }
+
   toFlatArray() {
     return Array.from(this.data);
   }
@@ -1030,6 +1070,15 @@ export class Matrix {
     const rows = [];
     for (let r = 0; r < this.rows; r++) {
       rows.push(Array.from(data.subarray(r * this.cols, (r + 1) * this.cols)));
+    }
+    return rows;
+  }
+
+  toArrayView() {
+    const data = this.toFloat32ArrayView();
+    const rows = [];
+    for (let r = 0; r < this.rows; r++) {
+      rows.push(data.subarray(r * this.cols, (r + 1) * this.cols));
     }
     return rows;
   }
