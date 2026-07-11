@@ -26,7 +26,7 @@ async function createCoreExports() {
       },
     },
   });
-  return instance.exports;
+  return instance.exports as any;
 }
 
 function writeF32(exports, values) {
@@ -78,11 +78,12 @@ test("requires a SIMD-capable wasm build", () => {
   assert.match(wat, /\(export "affineMatmulPostprocess"/);
   assert.match(wat, /\(export "batchOpcodeMatmul"/);
   assert.match(wat, /\(export "batchOpcodeOuter"/);
+  assert.match(wat, /\(export "batchOpcodeScaleRowsByVector"/);
 });
 
 test("exposes algebraic core kernels for affine and rank-one schemes", async () => {
   const core = await createCoreExports();
-  assert.equal(core.abiVersion(), 9);
+  assert.equal(core.abiVersion(), 10);
 
   const a = writeF32(core, [1, 2, 3, 4, 5, 6]);
   const b = writeF32(core, [7, 8, 9, 10, 11, 12]);
@@ -162,6 +163,24 @@ test("executes structural matrix constructors through raw batch", async () => {
   assertArrayAlmostEqual(readF32(core, inverse, 4), [0.5, 0, 0, 0.25]);
   assertArrayAlmostEqual(readF32(core, outer, 4), [3, 4, 6, 8]);
   assertArrayAlmostEqual(readF32(core, affine, 4), [7, 9, 13, 17]);
+});
+
+test("executes row and column torus actions through raw batch", async () => {
+  const core = await createCoreExports();
+  const matrix = writeF32(core, [1, 2, 3, 4, 5, 6]);
+  const rowTwist = writeF32(core, [2, -3]);
+  const colTwist = writeF32(core, [4, -5, 6]);
+  const rowScaled = core.allocF32(6);
+  const colScaled = core.allocF32(6);
+  const slots = core.batchInstructionI32Slots();
+  const instructions = new Int32Array(slots * 2);
+
+  instructions.set([core.batchOpcodeScaleRowsByVector(), rowTwist, matrix, rowScaled, 2, 3, 0, 0], 0);
+  instructions.set([core.batchOpcodeScaleColsByVector(), matrix, colTwist, colScaled, 2, 3, 0, 0], slots);
+
+  assert.equal(core.executeBatch(writeI32(core, instructions), 2), 1);
+  assertArrayAlmostEqual(readF32(core, rowScaled, 6), [2, 4, 6, -12, -15, -18]);
+  assertArrayAlmostEqual(readF32(core, colScaled, 6), [4, -10, 18, 16, -25, 36]);
 });
 
 test("constructs matrices and exposes row-major data", () => {

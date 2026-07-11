@@ -20,7 +20,15 @@ const BATCH_OP_OUTER: i32 = 17;
 const BATCH_OP_DIAGONAL_MATRIX: i32 = 18;
 const BATCH_OP_INVERT_DIAGONAL: i32 = 19;
 const BATCH_OP_AFFINE: i32 = 20;
+const BATCH_OP_SCALE_ROWS_BY_VECTOR: i32 = 21;
+const BATCH_OP_SCALE_COLS_BY_VECTOR: i32 = 22;
 const COST_MAX: i32 = 2147483647;
+const SCHEME_INVARIANT: i32 = 1;
+const SCHEME_COORDINATE: i32 = 2;
+const SCHEME_TORUS: i32 = 2;
+const SCHEME_SEGRE: i32 = 3;
+const SCHEME_DENSE_RESIDUAL: i32 = 4;
+const SCHEME_BARRIER: i32 = 5;
 
 @inline
 function f32Offset(index: i32): usize {
@@ -186,7 +194,7 @@ function dotSimd(a: usize, b: usize, length: i32): f32 {
 }
 
 export function abiVersion(): i32 {
-  return 9;
+  return 10;
 }
 
 export function simdProbe(): i32 {
@@ -297,6 +305,14 @@ export function batchOpcodeAffine(): i32 {
   return BATCH_OP_AFFINE;
 }
 
+export function batchOpcodeScaleRowsByVector(): i32 {
+  return BATCH_OP_SCALE_ROWS_BY_VECTOR;
+}
+
+export function batchOpcodeScaleColsByVector(): i32 {
+  return BATCH_OP_SCALE_COLS_BY_VECTOR;
+}
+
 @inline
 function f32Bytes(length: i32): usize {
   return <usize>length << 2;
@@ -360,6 +376,8 @@ function algebraicOpcodeMask(opcodes: v128): v128 {
   mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_DIAGONAL_MATRIX)));
   mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_INVERT_DIAGONAL)));
   mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_AFFINE)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_SCALE_ROWS_BY_VECTOR)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_SCALE_COLS_BY_VECTOR)));
   return mask;
 }
 
@@ -406,6 +424,8 @@ function batchWritePtr(instructions: usize, index: i32): usize {
   if (opcode == BATCH_OP_DIAGONAL_MATRIX) return <usize>readBatchI32(instructions, index, 2);
   if (opcode == BATCH_OP_INVERT_DIAGONAL) return <usize>readBatchI32(instructions, index, 2);
   if (opcode == BATCH_OP_AFFINE) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_SCALE_ROWS_BY_VECTOR) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_SCALE_COLS_BY_VECTOR) return <usize>readBatchI32(instructions, index, 3);
   return 0;
 }
 
@@ -440,6 +460,9 @@ function batchWriteBytes(instructions: usize, index: i32): usize {
     return f32Bytes(saturatedMul(size, size));
   }
   if (opcode == BATCH_OP_AFFINE) return f32Bytes(readBatchI32(instructions, index, 3));
+  if (opcode == BATCH_OP_SCALE_ROWS_BY_VECTOR || opcode == BATCH_OP_SCALE_COLS_BY_VECTOR) {
+    return f32Bytes(saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5)));
+  }
   return 0;
 }
 
@@ -546,6 +569,18 @@ function batchReadsOverlap(instructions: usize, index: i32, ptr: usize, bytes: u
   if (opcode == BATCH_OP_AFFINE) {
     return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(readBatchI32(instructions, index, 3)), ptr, bytes);
   }
+  if (opcode == BATCH_OP_SCALE_ROWS_BY_VECTOR) {
+    let rows = readBatchI32(instructions, index, 4);
+    let cols = readBatchI32(instructions, index, 5);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(rows), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(saturatedMul(rows, cols)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_SCALE_COLS_BY_VECTOR) {
+    let rows = readBatchI32(instructions, index, 4);
+    let cols = readBatchI32(instructions, index, 5);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(rows, cols)), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(cols), ptr, bytes);
+  }
   return true;
 }
 
@@ -590,13 +625,49 @@ function batchInstructionCost(instructions: usize, index: i32): i32 {
   }
   if (opcode == BATCH_OP_INVERT_DIAGONAL) return readBatchI32(instructions, index, 3);
   if (opcode == BATCH_OP_AFFINE) return readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_SCALE_ROWS_BY_VECTOR || opcode == BATCH_OP_SCALE_COLS_BY_VECTOR) {
+    return saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5));
+  }
   return COST_MAX;
+}
+
+function batchSchemeClass(instructions: usize, index: i32): i32 {
+  let opcode = readBatchI32(instructions, index, 0);
+  if (opcode == BATCH_OP_DETERMINANT || opcode == BATCH_OP_EQUALS_APPROX || opcode == BATCH_OP_MOMENTS) return SCHEME_INVARIANT;
+  if (opcode == BATCH_OP_COPY || opcode == BATCH_OP_AFFINE || opcode == BATCH_OP_ROW_SUMS || opcode == BATCH_OP_COL_SUMS) return SCHEME_COORDINATE;
+  if (
+    opcode == BATCH_OP_DIAGONAL_MATRIX
+    || opcode == BATCH_OP_INVERT_DIAGONAL
+    || opcode == BATCH_OP_SCALE_ROWS_BY_VECTOR
+    || opcode == BATCH_OP_SCALE_COLS_BY_VECTOR
+  ) {
+    return SCHEME_TORUS;
+  }
+  if (
+    opcode == BATCH_OP_OUTER
+    || opcode == BATCH_OP_RANK_ONE_ADD
+    || opcode == BATCH_OP_DET_RANK_ONE_UPDATE
+    || opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE
+  ) {
+    return SCHEME_SEGRE;
+  }
+  if (
+    opcode == BATCH_OP_MATMUL
+    || opcode == BATCH_OP_MATMUL_TN
+    || opcode == BATCH_OP_MATMUL_NT
+    || opcode == BATCH_OP_MATMUL_TT
+    || opcode == BATCH_OP_AFFINE_MATMUL_POSTPROCESS
+  ) {
+    return SCHEME_DENSE_RESIDUAL;
+  }
+  return SCHEME_BARRIER;
 }
 
 function normalizeBatchSegment(instructions: usize, start: i32, end: i32, plan: usize, planStart: i32, selected: usize): i32 {
   let written = 0;
   while (written < end - start) {
     let best = -1;
+    let bestScheme = SCHEME_BARRIER;
     let bestCost = COST_MAX;
 
     for (let candidate = start; candidate < end; candidate++) {
@@ -611,9 +682,16 @@ function normalizeBatchSegment(instructions: usize, start: i32, end: i32, plan: 
       }
       if (!movable) continue;
 
+      let scheme = batchSchemeClass(instructions, candidate);
       let cost = batchInstructionCost(instructions, candidate);
-      if (best < 0 || cost < bestCost || (cost == bestCost && candidate < best)) {
+      if (
+        best < 0
+        || scheme < bestScheme
+        || (scheme == bestScheme && cost < bestCost)
+        || (scheme == bestScheme && cost == bestCost && candidate < best)
+      ) {
         best = candidate;
+        bestScheme = scheme;
         bestCost = cost;
       }
     }
@@ -868,6 +946,26 @@ function executeBatchInstruction(instructions: usize, i: i32): i32 {
       readBatchI32(instructions, i, 3),
       readBatchF32Bits(instructions, i, 4),
       readBatchF32Bits(instructions, i, 5),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_SCALE_ROWS_BY_VECTOR) {
+    scaleRowsByVector(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_SCALE_COLS_BY_VECTOR) {
+    scaleColsByVector(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
     );
     return 1;
   }
@@ -1340,11 +1438,45 @@ export function scaleRowsByDiagonal(diagonalMatrix: usize, input: usize, out: us
   }
 }
 
+export function scaleRowsByVector(diagonalVector: usize, input: usize, out: usize, rows: i32, cols: i32): void {
+  for (let r = 0; r < rows; r++) {
+    let scalar = f32x4.splat(readF32(diagonalVector, r));
+    let rowBase = r * cols;
+    let c = 0;
+    let limit = simdLimit(cols);
+
+    for (; c < limit; c += 4) {
+      let offset = f32Offset(rowBase + c);
+      v128.store(out + offset, f32x4.mul(v128.load(input + offset), scalar));
+    }
+    for (; c < cols; c++) {
+      let index = rowBase + c;
+      writeF32(out, index, readF32(input, index) * f32x4.extract_lane(scalar, 0));
+    }
+  }
+}
+
 export function scaleColsByDiagonal(input: usize, diagonalMatrix: usize, out: usize, rows: i32, cols: i32): void {
   for (let r = 0; r < rows; r++) {
     let rowBase = r * cols;
     for (let c = 0; c < cols; c++) {
       writeF32(out, rowBase + c, readF32(input, rowBase + c) * readF32(diagonalMatrix, c * cols + c));
+    }
+  }
+}
+
+export function scaleColsByVector(input: usize, diagonalVector: usize, out: usize, rows: i32, cols: i32): void {
+  let limit = simdLimit(cols);
+  for (let r = 0; r < rows; r++) {
+    let rowBase = r * cols;
+    let c = 0;
+    for (; c < limit; c += 4) {
+      let offset = f32Offset(rowBase + c);
+      v128.store(out + offset, f32x4.mul(v128.load(input + offset), v128.load(diagonalVector + f32Offset(c))));
+    }
+    for (; c < cols; c++) {
+      let index = rowBase + c;
+      writeF32(out, index, readF32(input, index) * readF32(diagonalVector, c));
     }
   }
 }

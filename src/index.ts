@@ -52,6 +52,8 @@ const BATCH_OP_OUTER = 17;
 const BATCH_OP_DIAGONAL_MATRIX = 18;
 const BATCH_OP_INVERT_DIAGONAL = 19;
 const BATCH_OP_AFFINE = 20;
+const BATCH_OP_SCALE_ROWS_BY_VECTOR = 21;
+const BATCH_OP_SCALE_COLS_BY_VECTOR = 22;
 
 let defaultRuntime: any = null;
 let nextRuntimeId = 1;
@@ -187,7 +189,7 @@ function instantiateRuntime(wasmBytes: WasmBytes) {
     throw new Error("wasmatrix SIMD probe failed");
   }
   const abiVersion = runtime.call("abiVersion");
-  if (abiVersion !== 9) {
+  if (abiVersion !== 10) {
     throw new Error(`Unsupported wasmatrix ABI version: ${abiVersion}`);
   }
   runtime.primeBatch();
@@ -466,6 +468,7 @@ export class Matrix {
   #leastSquaresOf = null;
   #outerOf = null;
   #diagonalOf = null;
+  #diagonalTemporary = false;
   #literalData = null;
   #literalFill = null;
   #literalIdentity = false;
@@ -520,6 +523,7 @@ export class Matrix {
       this.#leastSquaresOf = options.leastSquaresOf ?? null;
       this.#outerOf = options.outerOf ?? null;
       this.#diagonalOf = options.diagonalOf ?? null;
+      this.#diagonalTemporary = options.diagonalTemporary === true;
       this.#affineScale = options.affineScale ?? 1;
       this.#affineBias = options.affineBias ?? 0;
     } else {
@@ -689,11 +693,13 @@ export class Matrix {
       const vector = toFloat32Array(values, "values");
       inputLength = vector.length;
       assertPositiveInteger(inputLength, "values.length");
-      const data = new Float32Array(inputLength * inputLength);
-      for (let i = 0; i < inputLength; i++) {
-        data[i * inputLength + i] = vector[i];
-      }
-      return new Matrix(inputLength, inputLength, data, { runtime, structure: "diagonal" });
+      const source = new Matrix(inputLength, 1, vector, { runtime });
+      return new Matrix(inputLength, inputLength, null, {
+        runtime,
+        diagonalOf: source,
+        diagonalTemporary: true,
+        structure: "diagonal"
+      });
     }
   }
 
@@ -870,7 +876,11 @@ export class Matrix {
       this.#outerOf.right.dispose();
     }
     this.#outerOf = null;
+    if (this.#diagonalTemporary) {
+      this.#diagonalOf.dispose();
+    }
     this.#diagonalOf = null;
+    this.#diagonalTemporary = false;
     this.#literalData = null;
     this.#literalFill = null;
     this.#literalIdentity = false;
@@ -919,6 +929,7 @@ export class Matrix {
     this.#leastSquaresOf = null;
     this.#outerOf = null;
     this.#diagonalOf = null;
+    this.#diagonalTemporary = false;
     this.#structure = "dense";
     return this;
   }
@@ -1934,6 +1945,25 @@ export class Matrix {
     return factor === 1 ? product : product.scale(factor);
   }
 
+  #diagonalVectorSource() {
+    if (
+      this.#ptr === 0
+      && this.#diagonalOf != null
+      && this.#base == null
+      && this.#inverseOf == null
+      && this.#transposeOf == null
+      && this.#expr == null
+      && this.#matmulOf == null
+      && this.#solveOf == null
+      && this.#leastSquaresOf == null
+      && this.#outerOf == null
+    ) {
+      return this.#diagonalOf;
+    }
+
+    return null;
+  }
+
   #localDataSnapshot() {
     if (this.#literalData != null) {
       return new Float32Array(this.#literalData);
@@ -2090,6 +2120,27 @@ export class Matrix {
       right.#assertAlive();
       this.#assertSameRuntime(left);
       this.#assertSameRuntime(right);
+      if (this.#matmulOf.variant === MATMUL_NN) {
+        const leftDiagonal = left.#diagonalVectorSource();
+        if (leftDiagonal != null) {
+          leftDiagonal.#assertAlive();
+          this.#assertSameRuntime(leftDiagonal);
+          if (!leftDiagonal.#collectBatchMaterialization(nodes, seen)) return false;
+          if (!right.#collectBatchMaterialization(nodes, seen)) return false;
+          nodes.push(this);
+          return true;
+        }
+
+        const rightDiagonal = right.#diagonalVectorSource();
+        if (rightDiagonal != null) {
+          rightDiagonal.#assertAlive();
+          this.#assertSameRuntime(rightDiagonal);
+          if (!left.#collectBatchMaterialization(nodes, seen)) return false;
+          if (!rightDiagonal.#collectBatchMaterialization(nodes, seen)) return false;
+          nodes.push(this);
+          return true;
+        }
+      }
       if (!left.#collectBatchMaterialization(nodes, seen)) return false;
       if (!right.#collectBatchMaterialization(nodes, seen)) return false;
       nodes.push(this);
@@ -2177,6 +2228,32 @@ export class Matrix {
 
     if (this.#matmulOf != null) {
       const { left, right, variant } = this.#matmulOf;
+      if (variant === MATMUL_NN) {
+        const leftDiagonal = left.#diagonalVectorSource();
+        if (leftDiagonal != null) {
+          return [
+            BATCH_OP_SCALE_ROWS_BY_VECTOR,
+            ptrOf(leftDiagonal),
+            ptrOf(right),
+            ptrOf(this),
+            right.rows,
+            right.cols
+          ];
+        }
+
+        const rightDiagonal = right.#diagonalVectorSource();
+        if (rightDiagonal != null) {
+          return [
+            BATCH_OP_SCALE_COLS_BY_VECTOR,
+            ptrOf(left),
+            ptrOf(rightDiagonal),
+            ptrOf(this),
+            left.rows,
+            left.cols
+          ];
+        }
+      }
+
       if (variant === MATMUL_TN) {
         return [
           BATCH_OP_MATMUL_TN,
@@ -2299,6 +2376,11 @@ export class Matrix {
     matrixFinalizer?.register(this, { runtime: this.#runtime, ptr: this.#ptr }, this);
     if (this.#solveOf?.temporaryRight) {
       this.#solveOf.right.dispose();
+    }
+    if (this.#diagonalTemporary) {
+      this.#diagonalOf.dispose();
+      this.#diagonalOf = null;
+      this.#diagonalTemporary = false;
     }
     if (cacheKey != null) {
       this.#runtime.putCachedBuffer(cacheKey, this.#ptr, this.length);
@@ -2567,8 +2649,13 @@ export class Matrix {
     const source = this.#diagonalOf;
     source.#assertAlive();
     this.#assertSameRuntime(source);
-    this.#runtime.call("diagonalMatrix", source.#materializedPtr(), ptr, source.length);
+    try {
+      this.#runtime.call("diagonalMatrix", source.#materializedPtr(), ptr, source.length);
+    } finally {
+      if (this.#diagonalTemporary) source.dispose();
+    }
     this.#diagonalOf = null;
+    this.#diagonalTemporary = false;
   }
 
   #materializedPtr() {

@@ -54,9 +54,9 @@
     "test": "npm run build && npm run build:component && node --import ./scripts/oxc-ts-register.mjs --test test/*.test.ts",
     "coverage": "npm run build && npm run build:component && c8 --reporter=lcov --reports-dir=coverage node --import ./scripts/oxc-ts-register.mjs --test test/*.test.ts",
     "coverage:codecov": "npm run coverage && node --import ./scripts/oxc-ts-register.mjs scripts/prepare-codecov-lcov.ts",
-    "test:e2e": "npm run build && node --import ./scripts/oxc-ts-register.mjs --test test/e2e-transparency.test.ts test/e2e-benchmark.ts",
+    "test:e2e": "npm run build && node --import ./scripts/oxc-ts-register.mjs --test test/e2e-transparency.test.ts && deno test -A test/e2e-benchmark.ts",
     "test:e2e:transparency": "npm run build && node --import ./scripts/oxc-ts-register.mjs --test test/e2e-transparency.test.ts",
-    "test:e2e:benchmark": "npm run build && node --import ./scripts/oxc-ts-register.mjs --test test/e2e-benchmark.ts",
+    "test:e2e:benchmark": "npm run build && deno test -A test/e2e-benchmark.ts",
     "benchmark": "npm run test:e2e:benchmark",
     "fmt": "deno task fmt",
     "lint": "deno task lint"

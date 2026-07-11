@@ -252,12 +252,19 @@ core from `src/wasmatrix.ts` and emits `build/wasmatrix.component.wasm` plus
 `deno task test` runs unit tests and E2E transparency tests.
 `deno task coverage` writes `coverage/lcov.info`; CI derives
 `coverage/codecov.lcov.info` from it for the Codecov badge.
-`deno task benchmark` runs the E2E benchmark suite and prints a JSON summary
-with timings, speedups, and checksums.
+`deno task benchmark` runs the E2E benchmark suite inside a Deno Worker. The
+parent test process only sends a fixed benchmark configuration, receives the
+result, and verifies that the worker wrote nothing to `console`. The JSON
+summary includes timings, speedups, checksums, estimated data bytes, estimated
+operation counts, `operationsPerByte`, and observed throughput for the
+data/compute sweep.
 
 Benchmark sizes can be adjusted with environment variables such as
 `WASMATRIX_BENCH_MATMUL_SIZE`, `WASMATRIX_BENCH_ELEMENT_ROWS`,
-`WASMATRIX_BENCH_ELEMENT_COLS`, and `WASMATRIX_BENCH_LINALG_SIZE`.
+`WASMATRIX_BENCH_ELEMENT_COLS`, and `WASMATRIX_BENCH_LINALG_SIZE`. The
+data/compute sweep also accepts comma-separated size lists via
+`WASMATRIX_BENCH_SWEEP_ELEMENT_SIZES`, `WASMATRIX_BENCH_SWEEP_MATMUL_SIZES`, and
+`WASMATRIX_BENCH_SWEEP_TORUS_SIZES`.
 
 ## Status
 
