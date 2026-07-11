@@ -17,6 +17,51 @@ function assertArrayAlmostEqual(actual, expected, epsilon = 1e-5) {
   }
 }
 
+async function createCoreExports() {
+  const bytes = readFileSync(new URL("../build/wasmatrix.wasm", import.meta.url));
+  const { instance } = await WebAssembly.instantiate(bytes, {
+    env: {
+      abort(_message, _file, line, column) {
+        throw new Error(`wasmatrix wasm abort at ${line}:${column}`);
+      },
+    },
+  });
+  return instance.exports;
+}
+
+function writeF32(exports, values) {
+  const ptr = exports.allocF32(values.length);
+  new Float32Array(exports.memory.buffer, ptr, values.length).set(values);
+  return ptr;
+}
+
+function readF32(exports, ptr, length) {
+  return Array.from(new Float32Array(exports.memory.buffer, ptr, length));
+}
+
+function readF64(exports, ptr, length) {
+  return Array.from(new Float64Array(exports.memory.buffer, ptr, length));
+}
+
+function writeI32(exports, values) {
+  const ptr = exports.allocI32(values.length);
+  new Int32Array(exports.memory.buffer, ptr, values.length).set(values);
+  return ptr;
+}
+
+function readI32(exports, ptr, length) {
+  return Array.from(new Int32Array(exports.memory.buffer, ptr, length));
+}
+
+const f32BitsBuffer = new ArrayBuffer(4);
+const f32BitsView = new Float32Array(f32BitsBuffer);
+const i32BitsView = new Int32Array(f32BitsBuffer);
+
+function f32Bits(value) {
+  f32BitsView[0] = Math.fround(value);
+  return i32BitsView[0];
+}
+
 test("requires a SIMD-capable wasm build", () => {
   assert.equal(SIMD_REQUIRED, true);
   assert.equal(isSimdSupported(), true);
@@ -28,7 +73,95 @@ test("requires a SIMD-capable wasm build", () => {
   assert.match(wat, /f32x4\.(add|mul|div|sqrt)/);
   assert.match(wat, /v128\.load/);
   assert.match(wat, /\(export "executeBatch"/);
+  assert.match(wat, /\(export "normalizeBatchPlan"/);
+  assert.match(wat, /\(export "moments"/);
+  assert.match(wat, /\(export "affineMatmulPostprocess"/);
   assert.match(wat, /\(export "batchOpcodeMatmul"/);
+  assert.match(wat, /\(export "batchOpcodeOuter"/);
+});
+
+test("exposes algebraic core kernels for affine and rank-one schemes", async () => {
+  const core = await createCoreExports();
+  assert.equal(core.abiVersion(), 9);
+
+  const a = writeF32(core, [1, 2, 3, 4, 5, 6]);
+  const b = writeF32(core, [7, 8, 9, 10, 11, 12]);
+  const product = core.allocF32(4);
+  const row = core.allocF32(2);
+  const col = core.allocF32(2);
+  const out = core.allocF32(4);
+  const stats = core.allocF64(4);
+  const short = writeF32(core, [5, -2, 3]);
+  const shortStats = core.allocF64(4);
+
+  core.matmul(a, b, product, 2, 3, 2);
+  core.rowSums(a, row, 2, 3);
+  core.colSums(b, col, 3, 2);
+  core.affineMatmulPostprocess(product, row, col, out, 2, 3, 2, 2, 1, 3, -2);
+  core.moments(a, stats, 6);
+  core.moments(short, shortStats, 3);
+
+  assertArrayAlmostEqual(readF32(core, row, 2), [6, 15]);
+  assertArrayAlmostEqual(readF32(core, col, 2), [27, 30]);
+  assertArrayAlmostEqual(readF32(core, out, 4), [399, 444, 849, 948]);
+  assertArrayAlmostEqual(readF64(core, stats, 4), [21, 91, 1, 6]);
+  assertArrayAlmostEqual(readF64(core, shortStats, 4), [6, 38, -2, 5]);
+});
+
+test("applies rank-one determinant and solve updates in the core", async () => {
+  const core = await createCoreExports();
+  const solvedU = writeF32(core, [0.1, 0.6]);
+  const v = writeF32(core, [3, -1]);
+  const baseSolution = writeF32(core, [0.8, 1.8]);
+  const out = core.allocF32(2);
+
+  assert.ok(Math.abs(core.detRankOneUpdate(10, solvedU, v, 2) - 7) < 1e-6);
+  assert.equal(core.solveRankOneUpdate(baseSolution, solvedU, v, out, 2, 1), 1);
+  assertArrayAlmostEqual(readF32(core, out, 2), [5 / 7, 9 / 7], 1e-5);
+});
+
+test("normalizes raw batch plans inside the algebraic core", async () => {
+  const core = await createCoreExports();
+  const a = writeF32(core, [1, 2, 3, 4]);
+  const b = writeF32(core, [5, 6, 7, 8]);
+  const product = core.allocF32(4);
+  const stats = core.allocF64(4);
+  const plan = core.allocI32(2);
+  const slots = core.batchInstructionI32Slots();
+
+  const instructions = new Int32Array(slots * 2);
+  instructions.set([core.batchOpcodeMatmul(), a, b, product, 2, 2, 2, 0], 0);
+  instructions.set([core.batchOpcodeMoments(), a, stats, 4, 0, 0, 0, 0], slots);
+  const ptr = writeI32(core, instructions);
+
+  assert.equal(core.normalizeBatchPlan(ptr, 2, plan), 2);
+  assert.deepEqual(readI32(core, plan, 2), [1, 0]);
+  assert.equal(core.executeBatch(ptr, 2), 1);
+  assertArrayAlmostEqual(readF64(core, stats, 4), [10, 30, 1, 4]);
+  assertArrayAlmostEqual(readF32(core, product, 4), [19, 22, 43, 50]);
+});
+
+test("executes structural matrix constructors through raw batch", async () => {
+  const core = await createCoreExports();
+  const vector = writeF32(core, [2, 4]);
+  const left = writeF32(core, [1, 2]);
+  const right = writeF32(core, [3, 4]);
+  const diagonal = core.allocF32(4);
+  const inverse = core.allocF32(4);
+  const outer = core.allocF32(4);
+  const affine = core.allocF32(4);
+  const slots = core.batchInstructionI32Slots();
+  const instructions = new Int32Array(slots * 4);
+
+  instructions.set([core.batchOpcodeDiagonalMatrix(), vector, diagonal, 2, 0, 0, 0, 0], 0);
+  instructions.set([core.batchOpcodeInvertDiagonal(), diagonal, inverse, 2, 0, 0, 0, 0], slots);
+  instructions.set([core.batchOpcodeOuter(), left, right, outer, 2, 2, 0, 0], slots * 2);
+  instructions.set([core.batchOpcodeAffine(), outer, affine, 4, f32Bits(2), f32Bits(1), 0, 0], slots * 3);
+
+  assert.equal(core.executeBatch(writeI32(core, instructions), 4), 1);
+  assertArrayAlmostEqual(readF32(core, inverse, 4), [0.5, 0, 0, 0.25]);
+  assertArrayAlmostEqual(readF32(core, outer, 4), [3, 4, 6, 8]);
+  assertArrayAlmostEqual(readF32(core, affine, 4), [7, 9, 13, 17]);
 });
 
 test("constructs matrices and exposes row-major data", () => {
@@ -61,6 +194,36 @@ test("keeps matrix results in WASM until explicit readback", () => {
   assert.throws(() => result.at(0, 0), /disposed/);
 });
 
+test("does not cross the WASM boundary for matrix-returning operations", () => {
+  const key = Symbol.for("wasmatrix.wasmCallListeners");
+  const previous = globalThis[key];
+  const calls = [];
+  globalThis[key] = new Set([(name) => calls.push(name)]);
+
+  try {
+    const diagonal = Matrix.diagonal([2, 3]);
+    const inverse = diagonal.inverse();
+    const outer = Matrix.outer([1, 2], [3, 4]);
+    const chain = Matrix.matmulChain(
+      Matrix.from(2, 2, [1, 0, 0, 1]),
+      outer,
+      inverse,
+    );
+    const leastSquares = Matrix.from(3, 2, [1, 0, 0, 1, 1, 1]).leastSquares([1, 2, 3]);
+
+    assert.deepEqual(leastSquares.shape, [2, 1]);
+    assert.deepEqual(calls, []);
+    assertArrayAlmostEqual(chain.toFlatArray(), [1.5, 4 / 3, 3, 8 / 3]);
+    assert.deepEqual(calls, ["allocF32", "executeBatch"]);
+  } finally {
+    if (previous === undefined) {
+      delete globalThis[key];
+    } else {
+      globalThis[key] = previous;
+    }
+  }
+});
+
 test("uses the minimum WASM boundary calls for the getting started workflow", () => {
   const key = Symbol.for("wasmatrix.wasmCallListeners");
   const previous = globalThis[key];
@@ -82,7 +245,6 @@ test("uses the minimum WASM boundary calls for the getting started workflow", ()
       "allocF32",
       "determinant",
       "allocF32",
-      "allocF32",
       "executeBatch",
     ]);
 
@@ -90,7 +252,6 @@ test("uses the minimum WASM boundary calls for the getting started workflow", ()
     assert.deepEqual(calls, [
       "allocF32",
       "determinant",
-      "allocF32",
       "allocF32",
       "executeBatch",
       "allocF32",
@@ -102,11 +263,9 @@ test("uses the minimum WASM boundary calls for the getting started workflow", ()
       "allocF32",
       "determinant",
       "allocF32",
-      "allocF32",
       "executeBatch",
       "allocF32",
       "executeBatch",
-      "equalsApprox",
     ]);
   } finally {
     if (previous === undefined) {

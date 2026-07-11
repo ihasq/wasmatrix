@@ -9,6 +9,18 @@ const BATCH_OP_EQUALS_APPROX: i32 = 6;
 const BATCH_OP_MATMUL_TN: i32 = 7;
 const BATCH_OP_MATMUL_NT: i32 = 8;
 const BATCH_OP_MATMUL_TT: i32 = 9;
+const BATCH_OP_MOMENTS: i32 = 10;
+const BATCH_OP_ROW_SUMS: i32 = 11;
+const BATCH_OP_COL_SUMS: i32 = 12;
+const BATCH_OP_RANK_ONE_ADD: i32 = 13;
+const BATCH_OP_AFFINE_MATMUL_POSTPROCESS: i32 = 14;
+const BATCH_OP_DET_RANK_ONE_UPDATE: i32 = 15;
+const BATCH_OP_SOLVE_RANK_ONE_UPDATE: i32 = 16;
+const BATCH_OP_OUTER: i32 = 17;
+const BATCH_OP_DIAGONAL_MATRIX: i32 = 18;
+const BATCH_OP_INVERT_DIAGONAL: i32 = 19;
+const BATCH_OP_AFFINE: i32 = 20;
+const COST_MAX: i32 = 2147483647;
 
 @inline
 function f32Offset(index: i32): usize {
@@ -58,6 +70,11 @@ function batchOffset(instructions: usize, instruction: i32, slot: i32): usize {
 @inline
 function readBatchI32(instructions: usize, instruction: i32, slot: i32): i32 {
   return load<i32>(batchOffset(instructions, instruction, slot));
+}
+
+@inline
+function readBatchF32Bits(instructions: usize, instruction: i32, slot: i32): f32 {
+  return reinterpret<f32>(readBatchI32(instructions, instruction, slot));
 }
 
 @inline
@@ -169,7 +186,7 @@ function dotSimd(a: usize, b: usize, length: i32): f32 {
 }
 
 export function abiVersion(): i32 {
-  return 7;
+  return 9;
 }
 
 export function simdProbe(): i32 {
@@ -236,90 +253,642 @@ export function batchOpcodeMatmulTT(): i32 {
   return BATCH_OP_MATMUL_TT;
 }
 
-export function executeBatch(instructions: usize, count: i32): i32 {
+export function batchOpcodeMoments(): i32 {
+  return BATCH_OP_MOMENTS;
+}
+
+export function batchOpcodeRowSums(): i32 {
+  return BATCH_OP_ROW_SUMS;
+}
+
+export function batchOpcodeColSums(): i32 {
+  return BATCH_OP_COL_SUMS;
+}
+
+export function batchOpcodeRankOneAdd(): i32 {
+  return BATCH_OP_RANK_ONE_ADD;
+}
+
+export function batchOpcodeAffineMatmulPostprocess(): i32 {
+  return BATCH_OP_AFFINE_MATMUL_POSTPROCESS;
+}
+
+export function batchOpcodeDetRankOneUpdate(): i32 {
+  return BATCH_OP_DET_RANK_ONE_UPDATE;
+}
+
+export function batchOpcodeSolveRankOneUpdate(): i32 {
+  return BATCH_OP_SOLVE_RANK_ONE_UPDATE;
+}
+
+export function batchOpcodeOuter(): i32 {
+  return BATCH_OP_OUTER;
+}
+
+export function batchOpcodeDiagonalMatrix(): i32 {
+  return BATCH_OP_DIAGONAL_MATRIX;
+}
+
+export function batchOpcodeInvertDiagonal(): i32 {
+  return BATCH_OP_INVERT_DIAGONAL;
+}
+
+export function batchOpcodeAffine(): i32 {
+  return BATCH_OP_AFFINE;
+}
+
+@inline
+function f32Bytes(length: i32): usize {
+  return <usize>length << 2;
+}
+
+@inline
+function f64Bytes(length: i32): usize {
+  return <usize>length << 3;
+}
+
+@inline
+function i32Bytes(length: i32): usize {
+  return <usize>length << 2;
+}
+
+@inline
+function saturatedMul(a: i32, b: i32): i32 {
+  if (a <= 0 || b <= 0) return 0;
+  if (a > COST_MAX / b) return COST_MAX;
+  return a * b;
+}
+
+@inline
+function saturatedMul3(a: i32, b: i32, c: i32): i32 {
+  return saturatedMul(saturatedMul(a, b), c);
+}
+
+@inline
+function rangesOverlap(a: usize, aBytes: usize, b: usize, bBytes: usize): bool {
+  if (aBytes == 0 || bBytes == 0) return false;
+  return a < b + bBytes && b < a + aBytes;
+}
+
+@inline
+function batchOpcodeVector(instructions: usize, start: i32, count: i32): v128 {
+  let value = i32x4.splat(0);
+  if (start < count) value = i32x4.replace_lane(value, 0, readBatchI32(instructions, start, 0));
+  if (start + 1 < count) value = i32x4.replace_lane(value, 1, readBatchI32(instructions, start + 1, 0));
+  if (start + 2 < count) value = i32x4.replace_lane(value, 2, readBatchI32(instructions, start + 2, 0));
+  if (start + 3 < count) value = i32x4.replace_lane(value, 3, readBatchI32(instructions, start + 3, 0));
+  return value;
+}
+
+@inline
+function algebraicOpcodeMask(opcodes: v128): v128 {
+  let mask = i32x4.eq(opcodes, i32x4.splat(BATCH_OP_COPY));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_MATMUL)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_TRANSPOSE)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_DETERMINANT)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_EQUALS_APPROX)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_MATMUL_TN)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_MATMUL_NT)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_MATMUL_TT)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_MOMENTS)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_ROW_SUMS)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_COL_SUMS)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_RANK_ONE_ADD)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_AFFINE_MATMUL_POSTPROCESS)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_DET_RANK_ONE_UPDATE)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_OUTER)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_DIAGONAL_MATRIX)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_INVERT_DIAGONAL)));
+  mask = v128.or(mask, i32x4.eq(opcodes, i32x4.splat(BATCH_OP_AFFINE)));
+  return mask;
+}
+
+function algebraicBatchSimdScore(instructions: usize, count: i32): i32 {
+  let acc = i32x4.splat(0);
+  let ones = i32x4.splat(1);
+  let i = 0;
+  for (; i < count; i += 4) {
+    let mask = algebraicOpcodeMask(batchOpcodeVector(instructions, i, count));
+    acc = i32x4.add(acc, v128.and(mask, ones));
+  }
+  return i32x4.extract_lane(acc, 0)
+    + i32x4.extract_lane(acc, 1)
+    + i32x4.extract_lane(acc, 2)
+    + i32x4.extract_lane(acc, 3);
+}
+
+@inline
+function batchIsOpenSubschemeBoundary(opcode: i32): bool {
+  return opcode == BATCH_OP_SOLVE
+    || opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE
+    || opcode == BATCH_OP_INVERT_DIAGONAL;
+}
+
+function batchWritePtr(instructions: usize, index: i32): usize {
+  let opcode = readBatchI32(instructions, index, 0);
+  if (opcode == BATCH_OP_COPY) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_MATMUL) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_SOLVE) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_TRANSPOSE) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_DETERMINANT) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_EQUALS_APPROX) return <usize>readBatchI32(instructions, index, 5);
+  if (opcode == BATCH_OP_MATMUL_TN) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_MATMUL_NT) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_MATMUL_TT) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_MOMENTS) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_ROW_SUMS) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_COL_SUMS) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_RANK_ONE_ADD) return <usize>readBatchI32(instructions, index, 1);
+  if (opcode == BATCH_OP_AFFINE_MATMUL_POSTPROCESS) return <usize>readI32(<usize>readBatchI32(instructions, index, 1), 3);
+  if (opcode == BATCH_OP_DET_RANK_ONE_UPDATE) return <usize>readBatchI32(instructions, index, 5);
+  if (opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE) return <usize>readBatchI32(instructions, index, 4);
+  if (opcode == BATCH_OP_OUTER) return <usize>readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_DIAGONAL_MATRIX) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_INVERT_DIAGONAL) return <usize>readBatchI32(instructions, index, 2);
+  if (opcode == BATCH_OP_AFFINE) return <usize>readBatchI32(instructions, index, 2);
+  return 0;
+}
+
+function batchWriteBytes(instructions: usize, index: i32): usize {
+  let opcode = readBatchI32(instructions, index, 0);
+  if (opcode == BATCH_OP_COPY) return f32Bytes(readBatchI32(instructions, index, 3));
+  if (opcode == BATCH_OP_MATMUL) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 6)));
+  if (opcode == BATCH_OP_SOLVE) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5)));
+  if (opcode == BATCH_OP_TRANSPOSE) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 3), readBatchI32(instructions, index, 4)));
+  if (opcode == BATCH_OP_DETERMINANT) return f64Bytes(1);
+  if (opcode == BATCH_OP_EQUALS_APPROX) return i32Bytes(1);
+  if (opcode == BATCH_OP_MATMUL_TN) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 5), readBatchI32(instructions, index, 6)));
+  if (opcode == BATCH_OP_MATMUL_NT) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 6)));
+  if (opcode == BATCH_OP_MATMUL_TT) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 5), readBatchI32(instructions, index, 6)));
+  if (opcode == BATCH_OP_MOMENTS) return f64Bytes(4);
+  if (opcode == BATCH_OP_ROW_SUMS) return f32Bytes(readBatchI32(instructions, index, 3));
+  if (opcode == BATCH_OP_COL_SUMS) return f32Bytes(readBatchI32(instructions, index, 4));
+  if (opcode == BATCH_OP_RANK_ONE_ADD) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5)));
+  if (opcode == BATCH_OP_AFFINE_MATMUL_POSTPROCESS) {
+    let descriptor = <usize>readBatchI32(instructions, index, 1);
+    return f32Bytes(saturatedMul(readI32(descriptor, 4), readI32(descriptor, 6)));
+  }
+  if (opcode == BATCH_OP_DET_RANK_ONE_UPDATE) return f64Bytes(1);
+  if (opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 5), readBatchI32(instructions, index, 6)));
+  if (opcode == BATCH_OP_OUTER) return f32Bytes(saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5)));
+  if (opcode == BATCH_OP_DIAGONAL_MATRIX) {
+    let size = readBatchI32(instructions, index, 3);
+    return f32Bytes(saturatedMul(size, size));
+  }
+  if (opcode == BATCH_OP_INVERT_DIAGONAL) {
+    let size = readBatchI32(instructions, index, 3);
+    return f32Bytes(saturatedMul(size, size));
+  }
+  if (opcode == BATCH_OP_AFFINE) return f32Bytes(readBatchI32(instructions, index, 3));
+  return 0;
+}
+
+function batchReadsOverlap(instructions: usize, index: i32, ptr: usize, bytes: usize): bool {
+  if (bytes == 0) return false;
+  let opcode = readBatchI32(instructions, index, 0);
+
+  if (opcode == BATCH_OP_COPY) {
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(readBatchI32(instructions, index, 3)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_MATMUL) {
+    let rows = readBatchI32(instructions, index, 4);
+    let shared = readBatchI32(instructions, index, 5);
+    let cols = readBatchI32(instructions, index, 6);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(rows, shared)), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(saturatedMul(shared, cols)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_SOLVE) {
+    let size = readBatchI32(instructions, index, 4);
+    let rhsCols = readBatchI32(instructions, index, 5);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(size, size)), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(saturatedMul(size, rhsCols)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_TRANSPOSE) {
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(readBatchI32(instructions, index, 3), readBatchI32(instructions, index, 4))), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_DETERMINANT) {
+    let size = readBatchI32(instructions, index, 2);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(size, size)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_EQUALS_APPROX) {
+    let length = readBatchI32(instructions, index, 3);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(length), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(length), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 4), f64Bytes(1), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_MATMUL_TN) {
+    let rowsA = readBatchI32(instructions, index, 4);
+    let colsA = readBatchI32(instructions, index, 5);
+    let colsB = readBatchI32(instructions, index, 6);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(rowsA, colsA)), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(saturatedMul(rowsA, colsB)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_MATMUL_NT || opcode == BATCH_OP_MATMUL_TT) {
+    let rowsA = readBatchI32(instructions, index, 4);
+    let colsA = readBatchI32(instructions, index, 5);
+    let rowsB = readBatchI32(instructions, index, 6);
+    let leftLength = opcode == BATCH_OP_MATMUL_NT ? saturatedMul(rowsA, colsA) : saturatedMul(rowsA, colsA);
+    let rightLength = opcode == BATCH_OP_MATMUL_NT ? saturatedMul(rowsB, colsA) : saturatedMul(rowsB, rowsA);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(leftLength), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(rightLength), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_MOMENTS) {
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(readBatchI32(instructions, index, 3)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_ROW_SUMS || opcode == BATCH_OP_COL_SUMS) {
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(readBatchI32(instructions, index, 3), readBatchI32(instructions, index, 4))), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_RANK_ONE_ADD) {
+    let rows = readBatchI32(instructions, index, 4);
+    let cols = readBatchI32(instructions, index, 5);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(rows, cols)), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(rows), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 3), f32Bytes(cols), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 6), f32Bytes(1), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_AFFINE_MATMUL_POSTPROCESS) {
+    let descriptor = <usize>readBatchI32(instructions, index, 1);
+    let scalars = <usize>readBatchI32(instructions, index, 2);
+    let rows = readI32(descriptor, 4);
+    let cols = readI32(descriptor, 6);
+    return rangesOverlap(descriptor, i32Bytes(7), ptr, bytes)
+      || rangesOverlap(scalars, f64Bytes(4), ptr, bytes)
+      || rangesOverlap(<usize>readI32(descriptor, 0), f32Bytes(saturatedMul(rows, cols)), ptr, bytes)
+      || rangesOverlap(<usize>readI32(descriptor, 1), f32Bytes(rows), ptr, bytes)
+      || rangesOverlap(<usize>readI32(descriptor, 2), f32Bytes(cols), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_DET_RANK_ONE_UPDATE) {
+    let length = readBatchI32(instructions, index, 3);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(length), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(length), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 4), f64Bytes(1), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE) {
+    let rows = readBatchI32(instructions, index, 5);
+    let rhsCols = readBatchI32(instructions, index, 6);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(rows, rhsCols)), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(rows), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 3), f32Bytes(rows), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_OUTER) {
+    let rows = readBatchI32(instructions, index, 4);
+    let cols = readBatchI32(instructions, index, 5);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(rows), ptr, bytes)
+      || rangesOverlap(<usize>readBatchI32(instructions, index, 2), f32Bytes(cols), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_DIAGONAL_MATRIX) {
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(readBatchI32(instructions, index, 3)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_INVERT_DIAGONAL) {
+    let size = readBatchI32(instructions, index, 3);
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(saturatedMul(size, size)), ptr, bytes);
+  }
+  if (opcode == BATCH_OP_AFFINE) {
+    return rangesOverlap(<usize>readBatchI32(instructions, index, 1), f32Bytes(readBatchI32(instructions, index, 3)), ptr, bytes);
+  }
+  return true;
+}
+
+function batchCanMoveBefore(instructions: usize, candidate: i32, earlier: i32): bool {
+  let candidateWritePtr = batchWritePtr(instructions, candidate);
+  let candidateWriteBytes = batchWriteBytes(instructions, candidate);
+  let earlierWritePtr = batchWritePtr(instructions, earlier);
+  let earlierWriteBytes = batchWriteBytes(instructions, earlier);
+
+  if (rangesOverlap(candidateWritePtr, candidateWriteBytes, earlierWritePtr, earlierWriteBytes)) return false;
+  if (batchReadsOverlap(instructions, candidate, earlierWritePtr, earlierWriteBytes)) return false;
+  if (batchReadsOverlap(instructions, earlier, candidateWritePtr, candidateWriteBytes)) return false;
+  return true;
+}
+
+function batchInstructionCost(instructions: usize, index: i32): i32 {
+  let opcode = readBatchI32(instructions, index, 0);
+  if (opcode == BATCH_OP_COPY) return readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_MATMUL) return saturatedMul3(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5), readBatchI32(instructions, index, 6));
+  if (opcode == BATCH_OP_SOLVE) return saturatedMul3(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5));
+  if (opcode == BATCH_OP_TRANSPOSE) return saturatedMul(readBatchI32(instructions, index, 3), readBatchI32(instructions, index, 4));
+  if (opcode == BATCH_OP_DETERMINANT) return saturatedMul3(readBatchI32(instructions, index, 2), readBatchI32(instructions, index, 2), readBatchI32(instructions, index, 2));
+  if (opcode == BATCH_OP_EQUALS_APPROX) return readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_MATMUL_TN || opcode == BATCH_OP_MATMUL_NT || opcode == BATCH_OP_MATMUL_TT) {
+    return saturatedMul3(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5), readBatchI32(instructions, index, 6));
+  }
+  if (opcode == BATCH_OP_MOMENTS) return readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_ROW_SUMS || opcode == BATCH_OP_COL_SUMS) {
+    return saturatedMul(readBatchI32(instructions, index, 3), readBatchI32(instructions, index, 4));
+  }
+  if (opcode == BATCH_OP_RANK_ONE_ADD) return saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5));
+  if (opcode == BATCH_OP_AFFINE_MATMUL_POSTPROCESS) {
+    let descriptor = <usize>readBatchI32(instructions, index, 1);
+    return saturatedMul(readI32(descriptor, 4), readI32(descriptor, 6));
+  }
+  if (opcode == BATCH_OP_DET_RANK_ONE_UPDATE) return readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE) return saturatedMul(readBatchI32(instructions, index, 5), readBatchI32(instructions, index, 6));
+  if (opcode == BATCH_OP_OUTER) return saturatedMul(readBatchI32(instructions, index, 4), readBatchI32(instructions, index, 5));
+  if (opcode == BATCH_OP_DIAGONAL_MATRIX) {
+    let size = readBatchI32(instructions, index, 3);
+    return saturatedMul(size, size);
+  }
+  if (opcode == BATCH_OP_INVERT_DIAGONAL) return readBatchI32(instructions, index, 3);
+  if (opcode == BATCH_OP_AFFINE) return readBatchI32(instructions, index, 3);
+  return COST_MAX;
+}
+
+function normalizeBatchSegment(instructions: usize, start: i32, end: i32, plan: usize, planStart: i32, selected: usize): i32 {
+  let written = 0;
+  while (written < end - start) {
+    let best = -1;
+    let bestCost = COST_MAX;
+
+    for (let candidate = start; candidate < end; candidate++) {
+      if (readI32(selected, candidate) != 0) continue;
+
+      let movable = true;
+      for (let earlier = start; earlier < candidate; earlier++) {
+        if (readI32(selected, earlier) == 0 && !batchCanMoveBefore(instructions, candidate, earlier)) {
+          movable = false;
+          break;
+        }
+      }
+      if (!movable) continue;
+
+      let cost = batchInstructionCost(instructions, candidate);
+      if (best < 0 || cost < bestCost || (cost == bestCost && candidate < best)) {
+        best = candidate;
+        bestCost = cost;
+      }
+    }
+
+    if (best < 0) {
+      for (let fallback = start; fallback < end; fallback++) {
+        if (readI32(selected, fallback) == 0) {
+          best = fallback;
+          break;
+        }
+      }
+    }
+
+    writeI32(selected, best, 1);
+    writeI32(plan, planStart + written, best);
+    written++;
+  }
+  return written;
+}
+
+export function normalizeBatchPlan(instructions: usize, count: i32, plan: usize): i32 {
   assert(count >= 0);
+  if (count == 0) return 0;
 
+  if (algebraicBatchSimdScore(instructions, count) == 0) {
+    for (let i = 0; i < count; i++) {
+      writeI32(plan, i, i);
+    }
+    return count;
+  }
+
+  let selected = heap.alloc(i32Bytes(count));
   for (let i = 0; i < count; i++) {
-    let opcode = readBatchI32(instructions, i, 0);
+    writeI32(selected, i, 0);
+  }
 
-    if (opcode == BATCH_OP_COPY) {
-      copy(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        readBatchI32(instructions, i, 3),
-      );
-    } else if (opcode == BATCH_OP_MATMUL) {
-      matmul(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        <usize>readBatchI32(instructions, i, 3),
-        readBatchI32(instructions, i, 4),
-        readBatchI32(instructions, i, 5),
-        readBatchI32(instructions, i, 6),
-      );
-    } else if (opcode == BATCH_OP_SOLVE) {
-      let ok = solve(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        <usize>readBatchI32(instructions, i, 3),
-        readBatchI32(instructions, i, 4),
-        readBatchI32(instructions, i, 5),
-      );
-      if (ok != 1) return 0;
-    } else if (opcode == BATCH_OP_TRANSPOSE) {
-      transpose(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        readBatchI32(instructions, i, 3),
-        readBatchI32(instructions, i, 4),
-      );
-    } else if (opcode == BATCH_OP_DETERMINANT) {
-      let value = determinant(
-        <usize>readBatchI32(instructions, i, 1),
-        readBatchI32(instructions, i, 2),
-      );
-      store<f64>(<usize>readBatchI32(instructions, i, 3), value);
-    } else if (opcode == BATCH_OP_EQUALS_APPROX) {
-      let result = equalsApprox(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        readBatchI32(instructions, i, 3),
-        load<f64>(<usize>readBatchI32(instructions, i, 4)),
-      );
-      store<i32>(<usize>readBatchI32(instructions, i, 5), result);
-    } else if (opcode == BATCH_OP_MATMUL_TN) {
-      matmulTN(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        <usize>readBatchI32(instructions, i, 3),
-        readBatchI32(instructions, i, 4),
-        readBatchI32(instructions, i, 5),
-        readBatchI32(instructions, i, 6),
-      );
-    } else if (opcode == BATCH_OP_MATMUL_NT) {
-      matmulNT(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        <usize>readBatchI32(instructions, i, 3),
-        readBatchI32(instructions, i, 4),
-        readBatchI32(instructions, i, 5),
-        readBatchI32(instructions, i, 6),
-      );
-    } else if (opcode == BATCH_OP_MATMUL_TT) {
-      matmulTT(
-        <usize>readBatchI32(instructions, i, 1),
-        <usize>readBatchI32(instructions, i, 2),
-        <usize>readBatchI32(instructions, i, 3),
-        readBatchI32(instructions, i, 4),
-        readBatchI32(instructions, i, 5),
-        readBatchI32(instructions, i, 6),
-      );
-    } else {
-      return -opcode;
+  let planPos = 0;
+  let segmentStart = 0;
+  for (let i = 0; i <= count; i++) {
+    if (i == count || batchIsOpenSubschemeBoundary(readBatchI32(instructions, i, 0))) {
+      planPos += normalizeBatchSegment(instructions, segmentStart, i, plan, planPos, selected);
+      if (i < count) {
+        writeI32(plan, planPos, i);
+        writeI32(selected, i, 1);
+        planPos++;
+      }
+      segmentStart = i + 1;
     }
   }
 
-  return 1;
+  heap.free(selected);
+  return planPos;
+}
+
+function executeBatchInstruction(instructions: usize, i: i32): i32 {
+  let opcode = readBatchI32(instructions, i, 0);
+
+  if (opcode == BATCH_OP_COPY) {
+    copy(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_MATMUL) {
+    matmul(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+      readBatchI32(instructions, i, 6),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_SOLVE) {
+    return solve(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+    );
+  }
+  if (opcode == BATCH_OP_TRANSPOSE) {
+    transpose(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_DETERMINANT) {
+    let value = determinant(
+      <usize>readBatchI32(instructions, i, 1),
+      readBatchI32(instructions, i, 2),
+    );
+    store<f64>(<usize>readBatchI32(instructions, i, 3), value);
+    return 1;
+  }
+  if (opcode == BATCH_OP_EQUALS_APPROX) {
+    let result = equalsApprox(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+      load<f64>(<usize>readBatchI32(instructions, i, 4)),
+    );
+    store<i32>(<usize>readBatchI32(instructions, i, 5), result);
+    return 1;
+  }
+  if (opcode == BATCH_OP_MATMUL_TN) {
+    matmulTN(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+      readBatchI32(instructions, i, 6),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_MATMUL_NT) {
+    matmulNT(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+      readBatchI32(instructions, i, 6),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_MATMUL_TT) {
+    matmulTT(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+      readBatchI32(instructions, i, 6),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_MOMENTS) {
+    moments(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_ROW_SUMS) {
+    rowSums(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_COL_SUMS) {
+    colSums(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_RANK_ONE_ADD) {
+    rankOneAdd(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+      load<f32>(<usize>readBatchI32(instructions, i, 6)),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_AFFINE_MATMUL_POSTPROCESS) {
+    let descriptor = <usize>readBatchI32(instructions, i, 1);
+    let scalars = <usize>readBatchI32(instructions, i, 2);
+    affineMatmulPostprocess(
+      <usize>readI32(descriptor, 0),
+      <usize>readI32(descriptor, 1),
+      <usize>readI32(descriptor, 2),
+      <usize>readI32(descriptor, 3),
+      readI32(descriptor, 4),
+      readI32(descriptor, 5),
+      readI32(descriptor, 6),
+      <f32>readF64(scalars, 0),
+      <f32>readF64(scalars, 1),
+      <f32>readF64(scalars, 2),
+      <f32>readF64(scalars, 3),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_DET_RANK_ONE_UPDATE) {
+    store<f64>(
+      <usize>readBatchI32(instructions, i, 5),
+      detRankOneUpdate(
+        load<f64>(<usize>readBatchI32(instructions, i, 4)),
+        <usize>readBatchI32(instructions, i, 1),
+        <usize>readBatchI32(instructions, i, 2),
+        readBatchI32(instructions, i, 3),
+      ),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_SOLVE_RANK_ONE_UPDATE) {
+    return solveRankOneUpdate(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      <usize>readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+      readBatchI32(instructions, i, 6),
+    );
+  }
+  if (opcode == BATCH_OP_OUTER) {
+    outer(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      <usize>readBatchI32(instructions, i, 3),
+      readBatchI32(instructions, i, 4),
+      readBatchI32(instructions, i, 5),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_DIAGONAL_MATRIX) {
+    diagonalMatrix(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+    );
+    return 1;
+  }
+  if (opcode == BATCH_OP_INVERT_DIAGONAL) {
+    return invertDiagonal(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+    );
+  }
+  if (opcode == BATCH_OP_AFFINE) {
+    affine(
+      <usize>readBatchI32(instructions, i, 1),
+      <usize>readBatchI32(instructions, i, 2),
+      readBatchI32(instructions, i, 3),
+      readBatchF32Bits(instructions, i, 4),
+      readBatchF32Bits(instructions, i, 5),
+    );
+    return 1;
+  }
+  return -opcode;
+}
+
+export function executeBatch(instructions: usize, count: i32): i32 {
+  assert(count >= 0);
+  if (count == 0) return 1;
+
+  let plan = heap.alloc(i32Bytes(count));
+  let plannedCount = normalizeBatchPlan(instructions, count, plan);
+  let result = 1;
+
+  for (let i = 0; i < plannedCount; i++) {
+    result = executeBatchInstruction(instructions, readI32(plan, i));
+    if (result != 1) break;
+  }
+
+  heap.free(plan);
+  return result;
 }
 
 export function fill(out: usize, length: i32, value: f32): void {
@@ -989,6 +1558,209 @@ export function outer(a: usize, b: usize, out: usize, rows: i32, cols: i32): voi
       writeF32(out, outBase + c, scalarValue * readF32(b, c));
     }
   }
+}
+
+export function moments(input: usize, out: usize, length: i32): void {
+  if (length <= 0) {
+    writeF64(out, 0, 0.0);
+    writeF64(out, 1, 0.0);
+    writeF64(out, 2, f64.NaN);
+    writeF64(out, 3, f64.NaN);
+    return;
+  }
+
+  let sum0 = f32x4.splat(0.0);
+  let sum1 = f32x4.splat(0.0);
+  let sumsq0 = f32x4.splat(0.0);
+  let sumsq1 = f32x4.splat(0.0);
+  let initial = readF32(input, 0);
+  let minVector = f32x4.splat(initial);
+  let maxVector = minVector;
+  let i = 0;
+  let unrolledLimit = length & -8;
+
+  for (; i < unrolledLimit; i += 8) {
+    let offset = f32Offset(i);
+    let value0 = v128.load(input + offset);
+    let value1 = v128.load(input + offset + 16);
+    sum0 = f32x4.add(sum0, value0);
+    sum1 = f32x4.add(sum1, value1);
+    sumsq0 = f32x4.add(sumsq0, f32x4.mul(value0, value0));
+    sumsq1 = f32x4.add(sumsq1, f32x4.mul(value1, value1));
+    minVector = f32x4.min(minVector, f32x4.min(value0, value1));
+    maxVector = f32x4.max(maxVector, f32x4.max(value0, value1));
+  }
+
+  let limit = simdLimit(length);
+  for (; i < limit; i += 4) {
+    let value = v128.load(input + f32Offset(i));
+    sum0 = f32x4.add(sum0, value);
+    sumsq0 = f32x4.add(sumsq0, f32x4.mul(value, value));
+    minVector = f32x4.min(minVector, value);
+    maxVector = f32x4.max(maxVector, value);
+  }
+
+  let total: f64 = <f64>horizontalSum4(f32x4.add(sum0, sum1));
+  let squareTotal: f64 = <f64>horizontalSum4(f32x4.add(sumsq0, sumsq1));
+  let minResult = Mathf.min(
+    Mathf.min(f32x4.extract_lane(minVector, 0), f32x4.extract_lane(minVector, 1)),
+    Mathf.min(f32x4.extract_lane(minVector, 2), f32x4.extract_lane(minVector, 3))
+  );
+  let maxResult = Mathf.max(
+    Mathf.max(f32x4.extract_lane(maxVector, 0), f32x4.extract_lane(maxVector, 1)),
+    Mathf.max(f32x4.extract_lane(maxVector, 2), f32x4.extract_lane(maxVector, 3))
+  );
+
+  for (; i < length; i++) {
+    let value = readF32(input, i);
+    total += <f64>value;
+    squareTotal += <f64>value * <f64>value;
+    minResult = Mathf.min(minResult, value);
+    maxResult = Mathf.max(maxResult, value);
+  }
+
+  writeF64(out, 0, total);
+  writeF64(out, 1, squareTotal);
+  writeF64(out, 2, <f64>minResult);
+  writeF64(out, 3, <f64>maxResult);
+}
+
+export function rowSums(input: usize, out: usize, rows: i32, cols: i32): void {
+  for (let r = 0; r < rows; r++) {
+    let acc0 = f32x4.splat(0.0);
+    let acc1 = f32x4.splat(0.0);
+    let rowBase = r * cols;
+    let c = 0;
+    let unrolledLimit = cols & -8;
+
+    for (; c < unrolledLimit; c += 8) {
+      let offset = f32Offset(rowBase + c);
+      acc0 = f32x4.add(acc0, v128.load(input + offset));
+      acc1 = f32x4.add(acc1, v128.load(input + offset + 16));
+    }
+
+    let limit = simdLimit(cols);
+    for (; c < limit; c += 4) {
+      acc0 = f32x4.add(acc0, v128.load(input + f32Offset(rowBase + c)));
+    }
+
+    let total = horizontalSum4(f32x4.add(acc0, acc1));
+    for (; c < cols; c++) {
+      total += readF32(input, rowBase + c);
+    }
+    writeF32(out, r, total);
+  }
+}
+
+export function colSums(input: usize, out: usize, rows: i32, cols: i32): void {
+  fill(out, cols, 0.0);
+  let colLimit = simdLimit(cols);
+
+  for (let r = 0; r < rows; r++) {
+    let rowBase = r * cols;
+    let c = 0;
+
+    for (; c < colLimit; c += 4) {
+      let offset = f32Offset(c);
+      let value = f32x4.add(v128.load(out + offset), v128.load(input + f32Offset(rowBase + c)));
+      v128.store(out + offset, value);
+    }
+
+    for (; c < cols; c++) {
+      writeF32(out, c, readF32(out, c) + readF32(input, rowBase + c));
+    }
+  }
+}
+
+export function rankOneAdd(out: usize, u: usize, v: usize, rows: i32, cols: i32, scaleValue: f32): void {
+  let colLimit = simdLimit(cols);
+  for (let r = 0; r < rows; r++) {
+    let scalar = f32x4.splat(readF32(u, r) * scaleValue);
+    let rowBase = r * cols;
+    let c = 0;
+
+    for (; c < colLimit; c += 4) {
+      let offset = f32Offset(rowBase + c);
+      let update = f32x4.mul(scalar, v128.load(v + f32Offset(c)));
+      v128.store(out + offset, f32x4.add(v128.load(out + offset), update));
+    }
+
+    let scalarValue = readF32(u, r) * scaleValue;
+    for (; c < cols; c++) {
+      let index = rowBase + c;
+      writeF32(out, index, readF32(out, index) + scalarValue * readF32(v, c));
+    }
+  }
+}
+
+export function affineMatmulPostprocess(
+  product: usize,
+  rowSumsA: usize,
+  colSumsB: usize,
+  out: usize,
+  rows: i32,
+  shared: i32,
+  cols: i32,
+  leftScale: f32,
+  leftBias: f32,
+  rightScale: f32,
+  rightBias: f32
+): void {
+  let productScaleVector = f32x4.splat(leftScale * rightScale);
+  let leftRowScaleVector = f32x4.splat(leftScale * rightBias);
+  let rightColScaleVector = f32x4.splat(leftBias * rightScale);
+  let constantVector = f32x4.splat(leftBias * rightBias * <f32>shared);
+  let colLimit = simdLimit(cols);
+
+  for (let r = 0; r < rows; r++) {
+    let rowTermVector = f32x4.mul(f32x4.splat(readF32(rowSumsA, r)), leftRowScaleVector);
+    let rowBase = r * cols;
+    let c = 0;
+
+    for (; c < colLimit; c += 4) {
+      let offset = f32Offset(rowBase + c);
+      let value = f32x4.mul(v128.load(product + offset), productScaleVector);
+      value = f32x4.add(value, rowTermVector);
+      value = f32x4.add(value, f32x4.mul(v128.load(colSumsB + f32Offset(c)), rightColScaleVector));
+      value = f32x4.add(value, constantVector);
+      v128.store(out + offset, value);
+    }
+
+    let rowTerm = readF32(rowSumsA, r) * leftScale * rightBias;
+    let constantTerm = leftBias * rightBias * <f32>shared;
+    for (; c < cols; c++) {
+      let index = rowBase + c;
+      let value = readF32(product, index) * leftScale * rightScale
+        + rowTerm
+        + leftBias * rightScale * readF32(colSumsB, c)
+        + constantTerm;
+      writeF32(out, index, value);
+    }
+  }
+}
+
+export function detRankOneUpdate(detBase: f64, solvedU: usize, v: usize, length: i32): f64 {
+  return detBase * (1.0 + <f64>dotSimd(v, solvedU, length));
+}
+
+export function solveRankOneUpdate(baseSolution: usize, solvedU: usize, v: usize, out: usize, rows: i32, rhsCols: i32): i32 {
+  let denominator = 1.0 + <f64>dotSimd(v, solvedU, rows);
+  if (Math.abs(denominator) <= EPSILON) return 0;
+
+  for (let c = 0; c < rhsCols; c++) {
+    let numerator: f64 = 0.0;
+    for (let r = 0; r < rows; r++) {
+      numerator += <f64>readF32(v, r) * <f64>readF32(baseSolution, r * rhsCols + c);
+    }
+
+    let factor = <f32>(numerator / denominator);
+    for (let r = 0; r < rows; r++) {
+      let index = r * rhsCols + c;
+      writeF32(out, index, readF32(baseSolution, index) - readF32(solvedU, r) * factor);
+    }
+  }
+
+  return 1;
 }
 
 export function sum(input: usize, length: i32): f64 {
