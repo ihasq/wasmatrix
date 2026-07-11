@@ -81,6 +81,16 @@ function preloadMatrixModule(url = defaultPackageUrl()) {
   return importMatrixModule(url);
 }
 
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function formatDurationMicroseconds(durationMs) {
+  const microseconds = Math.round(durationMs * 1000);
+  if (microseconds < 1000) return `${microseconds} us`;
+  return `${durationMs.toFixed(3)} ms`;
+}
+
 if (
   typeof window !== "undefined" && typeof HTMLElement !== "undefined" &&
   !window.customElements.get("wasmatrix-sandbox")
@@ -261,6 +271,11 @@ if (
           color: #fde68a;
         }
 
+        .logLine.timing {
+          color: #bfdbfe;
+          font-weight: 700;
+        }
+
         .cm-editor {
           height: 100%;
           min-height: 22rem;
@@ -365,9 +380,12 @@ if (
     }
 
     async #run() {
+      const startedAt = now();
       this.#clearConsole();
       this.#setStatus("Loading WASM");
       this.#runButton.disabled = true;
+      let finalStatus = "Done";
+      let elapsedMs = 0;
 
       const sandboxConsole = {
         log: (...values) => this.#write("log", values),
@@ -385,11 +403,16 @@ if (
           Object.getPrototypeOf(async function () {}).constructor;
         const fn = new AsyncFunction("Matrix", "console", source);
         await fn(Matrix, sandboxConsole);
-        this.#setStatus("Done");
+        elapsedMs = now() - startedAt;
       } catch (error) {
+        elapsedMs = now() - startedAt;
         this.#write("error", [error?.stack || error?.message || error]);
-        this.#setStatus("Error");
+        finalStatus = "Error";
       } finally {
+        this.#write("timing", [
+          `Elapsed ${formatDurationMicroseconds(elapsedMs)}`,
+        ]);
+        this.#setStatus(finalStatus);
         this.#runButton.disabled = false;
       }
     }
