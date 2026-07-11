@@ -38,6 +38,7 @@ const DEFAULT_RUNTIME_PATH = "wasmatrix-runtime/index.js";
 const MATRIX_MODULE_CACHE_KEY = Symbol.for(
   "wasmatrix.docs.sandbox.matrixModuleCache",
 );
+const WASM_CALL_LISTENERS_KEY = Symbol.for("wasmatrix.wasmCallListeners");
 
 function formatValue(value) {
   if (value instanceof Float32Array) {
@@ -58,6 +59,11 @@ function formatValue(value) {
 function matrixModuleCache() {
   window[MATRIX_MODULE_CACHE_KEY] ??= new Map();
   return window[MATRIX_MODULE_CACHE_KEY];
+}
+
+function wasmCallListeners() {
+  window[WASM_CALL_LISTENERS_KEY] ??= new Set();
+  return window[WASM_CALL_LISTENERS_KEY];
 }
 
 function defaultPackageUrl() {
@@ -89,6 +95,10 @@ function formatDurationMicroseconds(durationMs) {
   const microseconds = Math.round(durationMs * 1000);
   if (microseconds < 1000) return `${microseconds} us`;
   return `${durationMs.toFixed(3)} ms`;
+}
+
+function formatWasmCallCount(count) {
+  return `${count} WASM ${count === 1 ? "call" : "calls"}`;
 }
 
 if (
@@ -271,11 +281,6 @@ if (
           color: #fde68a;
         }
 
-        .logLine.timing {
-          color: #bfdbfe;
-          font-weight: 700;
-        }
-
         .cm-editor {
           height: 100%;
           min-height: 22rem;
@@ -386,6 +391,11 @@ if (
       this.#runButton.disabled = true;
       let finalStatus = "Done";
       let elapsedMs = 0;
+      let wasmCalls = 0;
+      let listeners = null;
+      const countWasmCall = () => {
+        wasmCalls++;
+      };
 
       const sandboxConsole = {
         log: (...values) => this.#write("log", values),
@@ -397,11 +407,13 @@ if (
 
       try {
         const Matrix = await this.#loadMatrix();
-        this.#setStatus("Running");
         const source = this.#editor.state.doc.toString();
         const AsyncFunction =
           Object.getPrototypeOf(async function () {}).constructor;
         const fn = new AsyncFunction("Matrix", "console", source);
+        listeners = wasmCallListeners();
+        listeners.add(countWasmCall);
+        this.#setStatus("Running");
         await fn(Matrix, sandboxConsole);
         elapsedMs = now() - startedAt;
       } catch (error) {
@@ -409,10 +421,12 @@ if (
         this.#write("error", [error?.stack || error?.message || error]);
         finalStatus = "Error";
       } finally {
-        this.#write("timing", [
-          `Elapsed ${formatDurationMicroseconds(elapsedMs)}`,
-        ]);
-        this.#setStatus(finalStatus);
+        listeners?.delete(countWasmCall);
+        this.#setStatus(
+          `${finalStatus}: ${formatDurationMicroseconds(elapsedMs)}, ${
+            formatWasmCallCount(wasmCalls)
+          }`,
+        );
         this.#runButton.disabled = false;
       }
     }

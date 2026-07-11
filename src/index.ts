@@ -8,6 +8,7 @@ export interface WasmatrixOptions {
 type WasmBytes = any;
 
 const DEFAULT_WASM_URL = new URL("./wasmatrix.wasm", import.meta.url);
+const WASM_CALL_LISTENERS_KEY = Symbol.for("wasmatrix.wasmCallListeners");
 let defaultWasmBytes: Uint8Array | null = null;
 const optimizationOptions = {
   fastMath: false,
@@ -96,6 +97,14 @@ function assertArrayLike(value, name) {
 function toFloat32Array(value, name) {
   assertArrayLike(value, name);
   return value instanceof Float32Array ? value : Float32Array.from(value);
+}
+
+function reportWasmCall(name) {
+  const listeners = (globalThis as any)[WASM_CALL_LISTENERS_KEY];
+  if (listeners == null) return;
+  for (const listener of listeners) {
+    listener(name);
+  }
 }
 
 /* c8 ignore start */
@@ -223,6 +232,7 @@ class WasmRuntime {
     if (typeof fn !== "function") {
       throw new Error(`wasmatrix WASM export is not callable: ${name}`);
     }
+    reportWasmCall(name);
     return fn(...args);
   }
 
