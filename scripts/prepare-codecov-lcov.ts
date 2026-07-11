@@ -5,10 +5,10 @@ import { cwd } from "node:process";
 const lcovPath = "coverage/lcov.info";
 const targetPath = "coverage/codecov.lcov.info";
 const sourceMapPath = "dist/index.js.map";
-const sourceOfTruthPath = "wasmatrix.ts";
+const adapterSourcePath = "src/index.ts";
 const generatedAdapterPath = "build/generated/index.ts";
 const distAdapterPath = "dist/index.js";
-const adapterBeginMarker = "// @wasmatrix-js-adapter begin";
+const generatedHeaderLineCount = 1;
 
 function normalizedPath(path: string) {
   const normalized = path.replaceAll("\\", "/");
@@ -16,16 +16,6 @@ function normalizedPath(path: string) {
   return normalized.startsWith(currentDirectory)
     ? normalized.slice(currentDirectory.length)
     : normalized;
-}
-
-function adapterLineOffset(source: string) {
-  const lines = source.split(/\r?\n/);
-  const markerIndex = lines.findIndex((line) => line === adapterBeginMarker);
-  if (markerIndex < 0) {
-    throw new Error(`Missing ${adapterBeginMarker} in ${sourceOfTruthPath}`);
-  }
-
-  return markerIndex;
 }
 
 function c8IgnoredLines(source: string) {
@@ -117,10 +107,8 @@ function addLine(lines: Map<number, number>, lineNumber: number, hits: number) {
 }
 
 const lcov = await readFile(lcovPath, "utf8");
-const sourceOfTruth = await readFile(sourceOfTruthPath, "utf8");
 const generatedAdapter = await readFile(generatedAdapterPath, "utf8");
 const sourceMap = await readFile(sourceMapPath, "utf8");
-const lineOffset = adapterLineOffset(sourceOfTruth);
 const ignoredGeneratedLines = c8IgnoredLines(generatedAdapter);
 const distToGeneratedLine = generatedLineMap(sourceMap);
 const codecovLines = new Map<number, number>();
@@ -149,7 +137,10 @@ for (const record of parseRecords(lcov)) {
       continue;
     }
 
-    addLine(codecovLines, generatedLine + lineOffset, hits);
+    const adapterSourceLine = generatedLine - generatedHeaderLineCount;
+    if (adapterSourceLine > 0) {
+      addLine(codecovLines, adapterSourceLine, hits);
+    }
   }
 }
 
@@ -157,7 +148,7 @@ const sortedLines = [...codecovLines].sort(([left], [right]) => left - right);
 const coveredLines = sortedLines.filter(([, hits]) => hits > 0).length;
 const output = [
   "TN:",
-  `SF:${sourceOfTruthPath}`,
+  `SF:${adapterSourcePath}`,
   ...sortedLines.map(([lineNumber, hits]) => `DA:${lineNumber},${hits}`),
   `LF:${sortedLines.length}`,
   `LH:${coveredLines}`,
