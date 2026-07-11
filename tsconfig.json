@@ -12,6 +12,8 @@
     "sourceMap": true,
     "inlineSources": true,
     "strict": false,
+    "types": ["node"],
+    "typeRoots": ["./node_modules/@types", "./docs/node_modules/@types"],
     "noEmitOnError": true,
     "skipLibCheck": true,
     "useDefineForClassFields": true

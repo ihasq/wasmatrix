@@ -1,4 +1,6 @@
 import { eachMapping, TraceMap } from "@jridgewell/trace-mapping";
+import { readFile, writeFile } from "node:fs/promises";
+import { cwd } from "node:process";
 
 const lcovPath = "coverage/lcov.info";
 const targetPath = "coverage/codecov.lcov.info";
@@ -10,8 +12,10 @@ const adapterBeginMarker = "// @wasmatrix-js-adapter begin";
 
 function normalizedPath(path: string) {
   const normalized = path.replaceAll("\\", "/");
-  const cwd = `${Deno.cwd().replaceAll("\\", "/")}/`;
-  return normalized.startsWith(cwd) ? normalized.slice(cwd.length) : normalized;
+  const currentDirectory = `${cwd().replaceAll("\\", "/")}/`;
+  return normalized.startsWith(currentDirectory)
+    ? normalized.slice(currentDirectory.length)
+    : normalized;
 }
 
 function adapterLineOffset(source: string) {
@@ -112,10 +116,10 @@ function addLine(lines: Map<number, number>, lineNumber: number, hits: number) {
   lines.set(lineNumber, (lines.get(lineNumber) ?? 0) + hits);
 }
 
-const lcov = await Deno.readTextFile(lcovPath);
-const sourceOfTruth = await Deno.readTextFile(sourceOfTruthPath);
-const generatedAdapter = await Deno.readTextFile(generatedAdapterPath);
-const sourceMap = await Deno.readTextFile(sourceMapPath);
+const lcov = await readFile(lcovPath, "utf8");
+const sourceOfTruth = await readFile(sourceOfTruthPath, "utf8");
+const generatedAdapter = await readFile(generatedAdapterPath, "utf8");
+const sourceMap = await readFile(sourceMapPath, "utf8");
 const lineOffset = adapterLineOffset(sourceOfTruth);
 const ignoredGeneratedLines = c8IgnoredLines(generatedAdapter);
 const distToGeneratedLine = generatedLineMap(sourceMap);
@@ -161,4 +165,4 @@ const output = [
   "",
 ].join("\n");
 
-await Deno.writeTextFile(targetPath, output);
+await writeFile(targetPath, output, "utf8");

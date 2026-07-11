@@ -3,14 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "generate:i18n": "deno task generate:i18n",
-    "generate:api": "deno task generate:api",
-    "prepare:runtime": "deno task prepare:runtime",
+    "generate:i18n": "node --import ../scripts/oxc-ts-register.mjs scripts/generate-localized-docs.ts",
+    "generate:api": "node --import ../scripts/oxc-ts-register.mjs scripts/generate-api-guide.ts",
+    "prepare:runtime": "node --import ../scripts/oxc-ts-register.mjs scripts/prepare-runtime.ts",
+    "prepare": "npm run generate:i18n && npm run generate:api && npm run prepare:runtime",
     "capture:social-card": "deno task capture:social-card",
-    "start": "deno task start",
-    "build": "deno task build",
-    "serve": "deno task serve",
-    "clear": "deno task clear"
+    "start": "npm run prepare && node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs start --host 127.0.0.1",
+    "build": "npm run prepare && node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs build",
+    "serve": "node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs serve",
+    "clear": "node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs clear"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",
@@ -26,5 +27,12 @@
     "prism-react-renderer": "^2.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@oxc-node/core": "^0.1.0",
+    "@types/node": "^24.10.2",
+    "assemblyscript": "^0.28.19",
+    "typedoc": "^0.28.20",
+    "typescript": "^5.9.3"
   }
 }

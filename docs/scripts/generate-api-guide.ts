@@ -1,4 +1,6 @@
+import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import siteContent from "../src/i18n/siteContent.ts";
@@ -6,6 +8,7 @@ import siteContent from "../src/i18n/siteContent.ts";
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptsDir, "..");
 const repoRoot = resolve(docsRoot, "..");
+const require = createRequire(import.meta.url);
 const jsonPath = resolve(docsRoot, ".docusaurus/api-reference.json");
 const {
   DEFAULT_LOCALE,
@@ -13,6 +16,10 @@ const {
   apiGuideContent,
   getContentForLocale,
 } = siteContent;
+
+function packageRoot(packageName: string) {
+  return dirname(require.resolve(`${packageName}/package.json`));
+}
 
 const METHOD_GROUPS = [
   {
@@ -211,6 +218,44 @@ function apiGuidePathForLocale(locale) {
     "current",
     "api-guide.md",
   );
+}
+
+async function run(command: string, args: string[], cwd: string) {
+  const child = spawn(command, args, {
+    cwd,
+    stdio: "inherit",
+  });
+
+  const code = await new Promise<number | null>((resolveRun, rejectRun) => {
+    child.once("error", rejectRun);
+    child.once("exit", resolveRun);
+  });
+
+  if (code !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with ${code}`);
+  }
+}
+
+async function runOptional(command: string, args: string[], cwd: string) {
+  const child = spawn(command, args, {
+    cwd,
+    stdio: "inherit",
+  });
+
+  const code = await new Promise<number | null>((resolveRun, rejectRun) => {
+    child.once("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        resolveRun(0);
+      } else {
+        rejectRun(error);
+      }
+    });
+    child.once("exit", resolveRun);
+  });
+
+  if (code !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with ${code}`);
+  }
 }
 
 function renderDetails(reflection, content) {
@@ -455,32 +500,21 @@ function generatedMarkdown(project, content) {
 
 await mkdir(dirname(jsonPath), { recursive: true });
 
-const typedoc = await new Deno.Command(Deno.execPath(), {
-  args: [
-    "run",
-    "-A",
-    "npm:typedoc@0.28.20",
-    "--tsconfig",
-    resolve(docsRoot, "tsconfig.typedoc.json"),
-    "--json",
-    jsonPath,
-    resolve(repoRoot, "index.d.ts"),
-    "--name",
-    "WASMatrix",
-    "--readme",
-    "none",
-    "--disableSources",
-    "--excludePrivate",
-    "--excludeProtected",
-  ],
-  cwd: docsRoot,
-  stdout: "inherit",
-  stderr: "inherit",
-}).output();
-
-if (!typedoc.success) {
-  throw new Error(`typedoc failed with ${typedoc.code}`);
-}
+await run(process.execPath, [
+  resolve(packageRoot("typedoc"), "bin/typedoc"),
+  "--tsconfig",
+  resolve(docsRoot, "tsconfig.typedoc.json"),
+  "--json",
+  jsonPath,
+  resolve(repoRoot, "index.d.ts"),
+  "--name",
+  "WASMatrix",
+  "--readme",
+  "none",
+  "--disableSources",
+  "--excludePrivate",
+  "--excludeProtected",
+], docsRoot);
 
 const project = JSON.parse(await readFile(jsonPath, "utf8"));
 const generatedPaths = [];
@@ -495,14 +529,4 @@ for (const { code } of LOCALES) {
   generatedPaths.push(outputPath);
 }
 
-const formatter = await new Deno.Command(Deno.execPath(), {
-  args: ["fmt", ...generatedPaths],
-  stdout: "piped",
-  stderr: "piped",
-}).output();
-
-if (!formatter.success) {
-  await Deno.stderr.write(formatter.stdout);
-  await Deno.stderr.write(formatter.stderr);
-  throw new Error(`deno fmt failed with ${formatter.code}`);
-}
+await runOptional("deno", ["fmt", ...generatedPaths], docsRoot);
