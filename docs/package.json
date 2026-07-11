@@ -6,10 +6,10 @@
     "generate:i18n": "node --import ../scripts/oxc-ts-register.mjs scripts/generate-localized-docs.ts",
     "generate:api": "node --import ../scripts/oxc-ts-register.mjs scripts/generate-api-guide.ts",
     "prepare:runtime": "node --import ../scripts/oxc-ts-register.mjs scripts/prepare-runtime.ts",
-    "prepare": "npm run generate:i18n && npm run generate:api && npm run prepare:runtime",
+    "prepare:site": "npm run generate:i18n && npm run generate:api && npm run prepare:runtime",
     "capture:social-card": "deno task capture:social-card",
-    "start": "npm run prepare && node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs start --host 127.0.0.1",
-    "build": "npm run prepare && node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs build",
+    "start": "npm run prepare:site && node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs start --host 127.0.0.1",
+    "build": "npm run prepare:site && node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs build",
     "serve": "node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs serve",
     "clear": "node --import ../scripts/oxc-ts-register.mjs node_modules/@docusaurus/core/bin/docusaurus.mjs clear"
   },
