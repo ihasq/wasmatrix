@@ -34,6 +34,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: ./wasmatrix/coverage/codecov.lcov.info
+          root_dir: ./wasmatrix
           disable_search: true
           flags: node
           name: node-coverage
