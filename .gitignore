@@ -7,3 +7,7 @@ docs/i18n/
 docs/.docusaurus/
 docs/build/
 docs/static/wasmatrix-runtime/
+**/docs/i18n/
+**/docs/.docusaurus/
+**/docs/build/
+**/docs/static/wasmatrix-runtime/

@@ -1,0 +1,32 @@
+{
+  "name": "@wasmatrix/gpu",
+  "version": "0.0.1",
+  "description": "wgpu-matrix-compatible wrappers backed by WASMatrix operation templates",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "fmt": "deno fmt src test package.json tsconfig.json deno.json",
+    "lint": "deno lint src/*.ts test/*.ts",
+    "test": "npm run build && node --test test/gpu.test.ts"
+  },
+  "dependencies": {
+    "wasmatrix": "^0.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.2",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

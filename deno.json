@@ -2,35 +2,17 @@
   "compilerOptions": {
     "strict": false
   },
-  "imports": {
-    "@jridgewell/trace-mapping": "npm:@jridgewell/trace-mapping@0.3.31"
-  },
   "nodeModulesDir": "auto",
   "tasks": {
-    "generate": "deno task generate:component && deno task generate:adapter",
-    "generate:component": "deno run -A scripts/generate-component-mod.ts",
-    "generate:adapter": "deno run -A scripts/generate-js-adapter.ts",
-    "build": "deno task generate:component && deno task build:wasm && deno task build:ts && deno task build:dist",
-    "build:wasm": "deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.json --target release",
-    "build:component": "deno task generate:component && deno task build:wasm:component",
-    "build:wasm:component": "deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.component.json --target release",
-    "build:wkg": "deno task build:component",
-    "build:ts": "deno task generate:adapter && deno run -A npm:typescript@5.9.3/lib/tsc.js -p tsconfig.json",
-    "build:dist": "deno run -A scripts/prepare-dist.ts build/wasmatrix.wasm",
-    "build:debug": "deno task generate && deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.json --target debug && deno task build:ts && deno run -A scripts/prepare-dist.ts build/wasmatrix.debug.wasm",
-    "build:component:debug": "deno task generate:component && deno run -A npm:assemblyscript@0.28.19/asc --config asconfig.component.json --target debug",
-    "test": "deno task build && deno task build:component && deno test -A test/wasmatrix.test.ts test/component-metadata.test.ts test/typed-array-view.test.ts",
-    "coverage": "deno task build && deno task build:component && deno run -A scripts/run-coverage.ts",
-    "coverage:codecov": "deno task coverage && deno run -A scripts/prepare-codecov-lcov.ts",
-    "test:e2e": "deno task benchmark:routes",
-    "test:e2e:transparency": "deno task benchmark:routes",
-    "test:e2e:benchmark": "deno task benchmark:routes",
-    "benchmark:routes": "deno task build && deno test -A test/e2e-routing-benchmark.ts",
-    "benchmark": "deno task test:e2e:benchmark",
-    "docs:dev": "cd docs && deno task start",
-    "docs:build": "cd docs && deno task build",
-    "docs:serve": "cd docs && deno task serve",
-    "fmt": "deno fmt",
-    "lint": "deno lint scripts/*.ts docs/scripts/*.ts"
+    "build": "deno task --cwd wasmatrix build && deno task --cwd wasmatrix-gl build && deno task --cwd wasmatrix-gpu build",
+    "coverage": "deno task --cwd wasmatrix coverage && deno task --cwd wasmatrix-gl test && deno task --cwd wasmatrix-gpu test",
+    "coverage:codecov": "deno task --cwd wasmatrix coverage:codecov && deno task --cwd wasmatrix-gl test && deno task --cwd wasmatrix-gpu test",
+    "docs:build": "npm --prefix wasmatrix/docs ci && deno task --cwd wasmatrix docs:build",
+    "docs:dev": "deno task --cwd wasmatrix docs:dev",
+    "docs:serve": "deno task --cwd wasmatrix docs:serve",
+    "fmt": "deno task --cwd wasmatrix fmt && deno task --cwd wasmatrix-gl fmt && deno task --cwd wasmatrix-gpu fmt",
+    "lint": "deno task --cwd wasmatrix lint && deno task --cwd wasmatrix-gl lint && deno task --cwd wasmatrix-gpu lint",
+    "pages:build": "npm --prefix wasmatrix/docs ci && deno task --cwd wasmatrix pages:build && node wasmatrix/scripts/sync-pages-build.mjs",
+    "test": "deno task --cwd wasmatrix test && deno task --cwd wasmatrix-gl test && deno task --cwd wasmatrix-gpu test"
   }
 }

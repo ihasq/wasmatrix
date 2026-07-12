@@ -33,7 +33,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/codecov.lcov.info
+          files: ./wasmatrix/coverage/codecov.lcov.info
           disable_search: true
           flags: node
           name: node-coverage

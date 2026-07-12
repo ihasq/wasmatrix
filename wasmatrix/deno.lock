@@ -561,40 +561,18 @@
     }
   },
   "workspace": {
-    "members": {
-      "wasmatrix": {
-        "dependencies": [
-          "npm:@jridgewell/trace-mapping@0.3.31"
-        ],
-        "packageJson": {
-          "dependencies": [
-            "npm:@jridgewell/trace-mapping@~0.3.31",
-            "npm:@oxc-node/core@0.1",
-            "npm:@types/node@^24.10.2",
-            "npm:assemblyscript@~0.28.19",
-            "npm:c8@^10.1.3",
-            "npm:typescript@^5.9.3"
-          ]
-        }
-      },
-      "wasmatrix-gl": {
-        "packageJson": {
-          "dependencies": [
-            "npm:@types/node@^24.10.2",
-            "npm:typescript@^5.9.3",
-            "npm:wasmatrix@^0.0.8"
-          ]
-        }
-      },
-      "wasmatrix-gpu": {
-        "packageJson": {
-          "dependencies": [
-            "npm:@types/node@^24.10.2",
-            "npm:typescript@^5.9.3",
-            "npm:wasmatrix@^0.0.8"
-          ]
-        }
-      }
+    "dependencies": [
+      "npm:@jridgewell/trace-mapping@0.3.31"
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:@jridgewell/trace-mapping@~0.3.31",
+        "npm:@oxc-node/core@0.1",
+        "npm:@types/node@^24.10.2",
+        "npm:assemblyscript@~0.28.19",
+        "npm:c8@^10.1.3",
+        "npm:typescript@^5.9.3"
+      ]
     }
   }
 }

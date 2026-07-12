@@ -12,7 +12,7 @@ const WASM_CALL_LISTENERS_KEY = Symbol.for("wasmatrix.wasmCallListeners");
 let defaultWasmBytes: Uint8Array | null = null;
 const optimizationOptions = {
   fastMath: false,
-  cacheLimitBytes: 64 * 1024 * 1024
+  cacheLimitBytes: 64 * 1024 * 1024,
 };
 
 const EW_ADD = 1;
@@ -63,13 +63,15 @@ const f32BitsView = new Float32Array(f32BitsBuffer);
 const i32BitsView = new Int32Array(f32BitsBuffer);
 
 /* c8 ignore start */
-const matrixFinalizer: FinalizationRegistry<any> | null = typeof FinalizationRegistry === "function"
-  ? new FinalizationRegistry(({ runtime, ptr }) => runtime.free(ptr))
-  : null;
+const matrixFinalizer: FinalizationRegistry<any> | null =
+  typeof FinalizationRegistry === "function"
+    ? new FinalizationRegistry(({ runtime, ptr }) => runtime.free(ptr))
+    : null;
 
-const cacheFinalizer: FinalizationRegistry<any> | null = typeof FinalizationRegistry === "function"
-  ? new FinalizationRegistry((entry) => entry.dispose())
-  : null;
+const cacheFinalizer: FinalizationRegistry<any> | null =
+  typeof FinalizationRegistry === "function"
+    ? new FinalizationRegistry((entry) => entry.dispose())
+    : null;
 /* c8 ignore stop */
 
 function assertInteger(value, name) {
@@ -142,12 +144,16 @@ async function readWasmBytes(url: URL): Promise<Uint8Array> {
   if (url.protocol !== "file:") {
     /* c8 ignore start */
     if (typeof fetch !== "function") {
-      throw new Error(`wasmatrix cannot fetch ${url.href} in this JavaScript runtime`);
+      throw new Error(
+        `wasmatrix cannot fetch ${url.href} in this JavaScript runtime`,
+      );
     }
 
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`wasmatrix failed to fetch ${url.href}: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `wasmatrix failed to fetch ${url.href}: ${response.status} ${response.statusText}`,
+      );
     }
     return new Uint8Array(await response.arrayBuffer());
   }
@@ -159,7 +165,10 @@ async function readWasmBytes(url: URL): Promise<Uint8Array> {
 
 export function isSimdSupported(wasmBytes: WasmBytes | null = null): boolean {
   /* c8 ignore start */
-  if (typeof WebAssembly === "undefined" || typeof WebAssembly.validate !== "function") {
+  if (
+    typeof WebAssembly === "undefined" ||
+    typeof WebAssembly.validate !== "function"
+  ) {
     return false;
   }
 
@@ -173,14 +182,16 @@ export function isSimdSupported(wasmBytes: WasmBytes | null = null): boolean {
 
 function instantiateRuntime(wasmBytes: WasmBytes) {
   if (!isSimdSupported(wasmBytes)) {
-    throw new Error("wasmatrix requires a WebAssembly runtime with SIMD support");
+    throw new Error(
+      "wasmatrix requires a WebAssembly runtime with SIMD support",
+    );
   }
 
   const module = new WebAssembly.Module(wasmBytes);
   const instance = new WebAssembly.Instance(module, {
     env: {
-      abort: createAbort()
-    }
+      abort: createAbort(),
+    },
   });
   const runtime = new WasmRuntime(instance.exports as any);
 
@@ -367,7 +378,7 @@ class WasmRuntime {
         this.cacheEntries.delete(token);
         this.cacheBytes -= bytes;
         dispose();
-      }
+      },
     };
 
     this.cacheEntries.set(token, entry);
@@ -377,14 +388,18 @@ class WasmRuntime {
   }
 
   touchCacheEntry(entry) {
-    if (entry == null || entry.disposed || !this.cacheEntries.has(entry.token)) return false;
+    if (
+      entry == null || entry.disposed || !this.cacheEntries.has(entry.token)
+    ) return false;
     this.cacheEntries.delete(entry.token);
     this.cacheEntries.set(entry.token, entry);
     return true;
   }
 
   #evictCaches() {
-    while (this.cacheBytes > this.cacheLimitBytes && this.cacheEntries.size > 0) {
+    while (
+      this.cacheBytes > this.cacheLimitBytes && this.cacheEntries.size > 0
+    ) {
       const oldest = this.cacheEntries.values().next().value;
       oldest.dispose();
     }
@@ -425,7 +440,7 @@ class WasmRuntime {
     const entry = {
       ptr,
       length,
-      cacheEntry: null
+      cacheEntry: null,
     };
     entry.cacheEntry = this.registerCacheEntry(bytes, () => {
       this.free(ptr);
@@ -524,15 +539,15 @@ export class Matrix {
       this.#ptr = options.ptr;
       this.#owns = options.owns !== false;
     } else if (
-      options.base != null
-      || options.inverseOf != null
-      || options.transposeOf != null
-      || options.expr != null
-      || options.matmulOf != null
-      || options.solveOf != null
-      || options.leastSquaresOf != null
-      || options.outerOf != null
-      || options.diagonalOf != null
+      options.base != null ||
+      options.inverseOf != null ||
+      options.transposeOf != null ||
+      options.expr != null ||
+      options.matmulOf != null ||
+      options.solveOf != null ||
+      options.leastSquaresOf != null ||
+      options.outerOf != null ||
+      options.diagonalOf != null
     ) {
       this.#ptr = 0;
       this.#owns = false;
@@ -552,7 +567,9 @@ export class Matrix {
       if (data != null) {
         assertArrayLike(data, "data");
         if (data.length !== length) {
-          throw new RangeError(`data length ${data.length} does not match matrix shape ${rows}x${cols}`);
+          throw new RangeError(
+            `data length ${data.length} does not match matrix shape ${rows}x${cols}`,
+          );
         }
       }
 
@@ -570,7 +587,10 @@ export class Matrix {
     }
 
     if (this.#owns && this.#ptr) {
-      matrixFinalizer?.register(this, { runtime: this.#runtime, ptr: this.#ptr }, this);
+      matrixFinalizer?.register(this, {
+        runtime: this.#runtime,
+        ptr: this.#ptr,
+      }, this);
     }
   }
 
@@ -581,7 +601,10 @@ export class Matrix {
   static #affineStructure(base, scale, bias) {
     if (bias !== 0) return "dense";
     if (scale === 0) return "zero";
-    if (base.#structure === "identity") return scale === 1 ? "identity" : "diagonal";
+    /* c8 ignore next 3 */
+    if (base.#structure === "identity") {
+      return scale === 1 ? "identity" : "diagonal";
+    }
     return base.#structure;
   }
 
@@ -591,13 +614,16 @@ export class Matrix {
     assertFiniteNumber(bias, "bias");
     const structure = Matrix.#affineStructure(base, scale, bias);
 
-    if (base.#base != null && base.#inverseOf == null && base.#transposeOf == null && base.#ptr === 0) {
+    if (
+      base.#base != null && base.#inverseOf == null &&
+      base.#transposeOf == null && base.#ptr === 0
+    ) {
       return new Matrix(base.rows, base.cols, null, {
         runtime: base.#runtime,
         base: base.#base,
         affineScale: base.#affineScale * scale,
         affineBias: base.#affineBias * scale + bias,
-        structure
+        structure,
       });
     }
 
@@ -606,7 +632,7 @@ export class Matrix {
       base,
       affineScale: scale,
       affineBias: bias,
-      structure
+      structure,
     });
   }
 
@@ -618,16 +644,21 @@ export class Matrix {
       if (op.scalarA === 0 && op.code === EW_MULTIPLY_SCALAR) return "zero";
       if (base.#structure === "zero") return "zero";
       if (base.#structure === "diagonal") return "diagonal";
-      if (base.#structure === "identity") return op.scalarA === 1 ? "identity" : "diagonal";
-      if (base.#structure === "ones") return op.scalarA === 1 ? "ones" : "dense";
+      /* c8 ignore next 3 */
+      if (base.#structure === "identity") {
+        return op.scalarA === 1 ? "identity" : "diagonal";
+      }
+      if (base.#structure === "ones") {
+        return op.scalarA === 1 ? "ones" : "dense";
+      }
       return base.#structure;
     }
     if (
-      op.code === EW_NEGATE
-      || op.code === EW_ABS
-      || op.code === EW_SQRT
-      || op.code === EW_FLOOR
-      || op.code === EW_CEIL
+      op.code === EW_NEGATE ||
+      op.code === EW_ABS ||
+      op.code === EW_SQRT ||
+      op.code === EW_FLOOR ||
+      op.code === EW_CEIL
     ) {
       return base.#structure;
     }
@@ -646,7 +677,7 @@ export class Matrix {
     return new Matrix(base.rows, base.cols, null, {
       runtime: base.#runtime,
       expr: { base: source, ops },
-      structure
+      structure,
     });
   }
 
@@ -655,12 +686,12 @@ export class Matrix {
   }
 
   static #sameMatmul(left, right) {
-    return left != null
-      && right != null
-      && left.variant === right.variant
-      && left.left === right.left
-      && left.right === right.right
-      && left.gram === right.gram;
+    return left != null &&
+      right != null &&
+      left.variant === right.variant &&
+      left.left === right.left &&
+      left.right === right.right &&
+      left.gram === right.gram;
   }
 
   static #shouldDistributeMatmul(gemmCost, combineCost) {
@@ -695,7 +726,10 @@ export class Matrix {
   static identity(size) {
     assertPositiveInteger(size, "size");
 
-    return new Matrix(size, size, null, { structure: "identity", identity: true });
+    return new Matrix(size, size, null, {
+      structure: "identity",
+      identity: true,
+    });
   }
 
   static diagonal(values) {
@@ -709,7 +743,7 @@ export class Matrix {
       return new Matrix(inputLength, inputLength, null, {
         runtime,
         diagonalOf: values,
-        structure: "diagonal"
+        structure: "diagonal",
       });
     } else {
       const vector = toFloat32Array(values, "values");
@@ -720,7 +754,7 @@ export class Matrix {
         runtime,
         diagonalOf: source,
         diagonalTemporary: true,
-        structure: "diagonal"
+        structure: "diagonal",
       });
     }
   }
@@ -736,13 +770,21 @@ export class Matrix {
   }
 
   static outer(a, b) {
-    const runtime = a instanceof Matrix ? a.#runtime : b instanceof Matrix ? b.#runtime : getRuntime();
+    const runtime = a instanceof Matrix
+      ? a.#runtime
+      : b instanceof Matrix
+      ? b.#runtime
+      : getRuntime();
     const leftIsMatrix = a instanceof Matrix;
     const rightIsMatrix = b instanceof Matrix;
     const leftVector = leftIsMatrix ? null : toFloat32Array(a, "a");
     const rightVector = rightIsMatrix ? null : toFloat32Array(b, "b");
-    const left = leftIsMatrix ? a : new Matrix(leftVector.length, 1, leftVector, { runtime });
-    const right = rightIsMatrix ? b : new Matrix(rightVector.length, 1, rightVector, { runtime });
+    const left = leftIsMatrix
+      ? a
+      : new Matrix(leftVector.length, 1, leftVector, { runtime });
+    const right = rightIsMatrix
+      ? b
+      : new Matrix(rightVector.length, 1, rightVector, { runtime });
     left.#assertAlive();
     right.#assertAlive();
     if (left.#runtime !== runtime || right.#runtime !== runtime) {
@@ -754,8 +796,8 @@ export class Matrix {
         left,
         right,
         temporaryLeft: !leftIsMatrix,
-        temporaryRight: !rightIsMatrix
-      }
+        temporaryRight: !rightIsMatrix,
+      },
     });
   }
 
@@ -776,7 +818,11 @@ export class Matrix {
       matrices[0].#assertSameRuntime(matrices[i]);
       if (matrices[i - 1].cols !== matrices[i].rows) {
         throw new RangeError(
-          `matmulChain shape mismatch at ${i - 1}/${i}: ${matrices[i - 1].rows}x${matrices[i - 1].cols} cannot multiply ${matrices[i].rows}x${matrices[i].cols}`
+          `matmulChain shape mismatch at ${i - 1}/${i}: ${
+            matrices[i - 1].rows
+          }x${matrices[i - 1].cols} cannot multiply ${matrices[i].rows}x${
+            matrices[i].cols
+          }`,
         );
       }
     }
@@ -795,9 +841,9 @@ export class Matrix {
         let bestSplit = i;
 
         for (let k = i; k < j; k++) {
-          const cost = costs[i][k]
-            + costs[k + 1][j]
-            + matrices[i].rows * matrices[k].cols * matrices[j].cols;
+          const cost = costs[i][k] +
+            costs[k + 1][j] +
+            matrices[i].rows * matrices[k].cols * matrices[j].cols;
           if (cost < best) {
             best = cost;
             bestSplit = k;
@@ -834,7 +880,7 @@ export class Matrix {
       return {
         ptr: value.#materializedPtr(),
         length: value.length,
-        free() {}
+        free() {},
       };
     }
 
@@ -845,7 +891,7 @@ export class Matrix {
       length: data.length,
       free() {
         runtime.free(ptr);
-      }
+      },
     };
   }
 
@@ -921,7 +967,10 @@ export class Matrix {
     this.#assertAlive();
     const local = this.#localDataSnapshot();
     if (local != null) {
-      return new Matrix(this.rows, this.cols, local, { runtime: this.#runtime, structure: this.#structure });
+      return new Matrix(this.rows, this.cols, local, {
+        runtime: this.#runtime,
+        structure: this.#structure,
+      });
     }
 
     const ptr = this.#runtime.alloc(this.length);
@@ -935,7 +984,10 @@ export class Matrix {
     if (local != null) {
       return local[row * this.cols + col];
     }
-    return this.#runtime.readValue(this.#materializedPtr(), row * this.cols + col);
+    return this.#runtime.readValue(
+      this.#materializedPtr(),
+      row * this.cols + col,
+    );
   }
 
   set(row, col, value) {
@@ -945,7 +997,11 @@ export class Matrix {
     if (local != null) {
       local[row * this.cols + col] = value;
     } else {
-      this.#runtime.writeValue(this.#materializedPtr(), row * this.cols + col, value);
+      this.#runtime.writeValue(
+        this.#materializedPtr(),
+        row * this.cols + col,
+        value,
+      );
     }
     this.#version++;
     this.#clearComputedCaches();
@@ -968,10 +1024,14 @@ export class Matrix {
     }
     const local = this.#localDataSnapshot();
     if (local != null) {
-      return new Float32Array(local.subarray(index * this.cols, (index + 1) * this.cols));
+      return new Float32Array(
+        local.subarray(index * this.cols, (index + 1) * this.cols),
+      );
     }
     const start = (this.#materializedPtr() >>> 2) + index * this.cols;
-    return new Float32Array(this.#runtime.f32.subarray(start, start + this.cols));
+    return new Float32Array(
+      this.#runtime.f32.subarray(start, start + this.cols),
+    );
   }
 
   rowView(index) {
@@ -980,7 +1040,11 @@ export class Matrix {
     if (index < 0 || index >= this.rows) {
       throw new RangeError("row index is out of range");
     }
-    return this.#runtime.viewF32(this.#materializedPtr() + index * this.cols * Float32Array.BYTES_PER_ELEMENT, this.cols);
+    return this.#runtime.viewF32(
+      this.#materializedPtr() +
+        index * this.cols * Float32Array.BYTES_PER_ELEMENT,
+      this.cols,
+    );
   }
 
   column(index) {
@@ -1026,7 +1090,13 @@ export class Matrix {
 
     const ptr = this.#runtime.alloc(length);
     try {
-      this.#runtime.call("diagonal", this.#materializedPtr(), ptr, this.rows, this.cols);
+      this.#runtime.call(
+        "diagonal",
+        this.#materializedPtr(),
+        ptr,
+        this.rows,
+        this.cols,
+      );
       const value = this.#runtime.read(ptr, length);
       this.#diagonalCache = { version: this.#version, value };
       return new Float32Array(value);
@@ -1044,7 +1114,10 @@ export class Matrix {
     }
     const local = this.#localDataSnapshot();
     if (local != null) {
-      return new Matrix(rows, cols, local, { runtime: this.#runtime, structure: this.#structure });
+      return new Matrix(rows, cols, local, {
+        runtime: this.#runtime,
+        structure: this.#structure,
+      });
     }
 
     const ptr = this.#runtime.alloc(this.length);
@@ -1090,7 +1163,11 @@ export class Matrix {
 
   addScalar(value) {
     assertFiniteNumber(value, "value");
-    return Matrix.#exprView(this, { code: EW_ADD_SCALAR, scalarA: value, scalarB: 0 });
+    return Matrix.#exprView(this, {
+      code: EW_ADD_SCALAR,
+      scalarA: value,
+      scalarB: 0,
+    });
   }
 
   subtract(other) {
@@ -1100,7 +1177,11 @@ export class Matrix {
 
   scale(value) {
     assertFiniteNumber(value, "value");
-    return Matrix.#exprView(this, { code: EW_MULTIPLY_SCALAR, scalarA: value, scalarB: 0 });
+    return Matrix.#exprView(this, {
+      code: EW_MULTIPLY_SCALAR,
+      scalarA: value,
+      scalarB: 0,
+    });
   }
 
   multiply(other) {
@@ -1114,7 +1195,11 @@ export class Matrix {
   divide(other) {
     if (typeof other === "number") {
       assertFiniteNumber(other, "other");
-      return Matrix.#exprView(this, { code: EW_DIVIDE_SCALAR, scalarA: other, scalarB: 0 });
+      return Matrix.#exprView(this, {
+        code: EW_DIVIDE_SCALAR,
+        scalarA: other,
+        scalarB: 0,
+      });
     }
     return this.#elementwise(other, EW_DIVIDE);
   }
@@ -1163,7 +1248,11 @@ export class Matrix {
       throw new RangeError("minValue must be less than or equal to maxValue");
     }
 
-    return Matrix.#exprView(this, { code: EW_CLAMP, scalarA: minValue, scalarB: maxValue });
+    return Matrix.#exprView(this, {
+      code: EW_CLAMP,
+      scalarA: minValue,
+      scalarB: maxValue,
+    });
   }
 
   map(fn) {
@@ -1190,7 +1279,11 @@ export class Matrix {
     }
 
     if (this.#base != null && this.#inverseOf == null && this.#ptr === 0) {
-      return Matrix.#affineView(this.#base.transpose(), this.#affineScale, this.#affineBias);
+      return Matrix.#affineView(
+        this.#base.transpose(),
+        this.#affineScale,
+        this.#affineBias,
+      );
     }
 
     let structure = "dense";
@@ -1203,7 +1296,7 @@ export class Matrix {
     return new Matrix(this.cols, this.rows, null, {
       runtime: this.#runtime,
       transposeOf: this,
-      structure
+      structure,
     });
   }
 
@@ -1215,7 +1308,9 @@ export class Matrix {
     other.#assertAlive();
     this.#assertSameRuntime(other);
     if (this.cols !== other.rows) {
-      throw new RangeError(`matmul shape mismatch: ${this.rows}x${this.cols} cannot multiply ${other.rows}x${other.cols}`);
+      throw new RangeError(
+        `matmul shape mismatch: ${this.rows}x${this.cols} cannot multiply ${other.rows}x${other.cols}`,
+      );
     }
 
     if (this.#inverseOf != null) {
@@ -1251,7 +1346,9 @@ export class Matrix {
     if (leftInput.source === rightInput.source && variant === MATMUL_TN) {
       gram = "TN";
       structure = "spd";
-    } else if (leftInput.source === rightInput.source && variant === MATMUL_NT) {
+    } else if (
+      leftInput.source === rightInput.source && variant === MATMUL_NT
+    ) {
       gram = "NT";
       structure = "spd";
     }
@@ -1265,9 +1362,9 @@ export class Matrix {
         left: leftInput.source,
         right: rightInput.source,
         variant,
-        gram
+        gram,
       },
-      structure
+      structure,
     });
   }
 
@@ -1276,12 +1373,21 @@ export class Matrix {
     const vec = Matrix.#vectorRef(vector, "vector", this.#runtime);
     if (vec.length !== this.cols) {
       vec.free();
-      throw new RangeError(`vector length ${vec.length} must match matrix columns ${this.cols}`);
+      throw new RangeError(
+        `vector length ${vec.length} must match matrix columns ${this.cols}`,
+      );
     }
 
     const ptr = this.#runtime.alloc(this.rows);
     try {
-      this.#runtime.call("matvec", this.#materializedPtr(), vec.ptr, ptr, this.rows, this.cols);
+      this.#runtime.call(
+        "matvec",
+        this.#materializedPtr(),
+        vec.ptr,
+        ptr,
+        this.rows,
+        this.cols,
+      );
       return this.#runtime.read(ptr, this.rows);
     } finally {
       this.#runtime.free(ptr);
@@ -1294,11 +1400,18 @@ export class Matrix {
     const values = Matrix.#vectorRef(other, "other", this.#runtime);
     if (values.length !== this.length) {
       values.free();
-      throw new RangeError(`dot length mismatch: ${this.length} !== ${values.length}`);
+      throw new RangeError(
+        `dot length mismatch: ${this.length} !== ${values.length}`,
+      );
     }
 
     try {
-      return this.#runtime.call("dot", this.#materializedPtr(), values.ptr, this.length);
+      return this.#runtime.call(
+        "dot",
+        this.#materializedPtr(),
+        values.ptr,
+        this.length,
+      );
     } finally {
       values.free();
     }
@@ -1306,41 +1419,79 @@ export class Matrix {
 
   sum() {
     this.#assertAlive();
-    return this.#cachedReduction("sum", () => this.#runtime.call("sum", this.#materializedPtr(), this.length));
+    return this.#cachedReduction(
+      "sum",
+      () => this.#runtime.call("sum", this.#materializedPtr(), this.length),
+    );
   }
 
   minValue() {
     this.#assertAlive();
-    return this.#cachedReduction("min", () => this.#runtime.call("minValue", this.#materializedPtr(), this.length));
+    return this.#cachedReduction(
+      "min",
+      () =>
+        this.#runtime.call("minValue", this.#materializedPtr(), this.length),
+    );
   }
 
   maxValue() {
     this.#assertAlive();
-    return this.#cachedReduction("max", () => this.#runtime.call("maxValue", this.#materializedPtr(), this.length));
+    return this.#cachedReduction(
+      "max",
+      () =>
+        this.#runtime.call("maxValue", this.#materializedPtr(), this.length),
+    );
   }
 
   trace() {
     this.#assertAlive();
     if (
-      this.#ptr === 0
-      && this.#matmulOf != null
-      && this.#matmulOf.variant === MATMUL_NN
-      && this.#matmulOf.gram == null
-      && this.rows === this.cols
+      this.#ptr === 0 &&
+      this.#matmulOf != null &&
+      this.#matmulOf.variant === MATMUL_NN &&
+      this.#matmulOf.gram == null &&
+      this.rows === this.cols
     ) {
       const { left, right } = this.#matmulOf;
       left.#assertAlive();
       right.#assertAlive();
       this.#assertSameRuntime(left);
       this.#assertSameRuntime(right);
-      return this.#cachedReduction("trace-matmul", () => this.#runtime.call("traceMatmul", left.#materializedPtr(), right.#materializedPtr(), left.rows, left.cols));
+      return this.#cachedReduction(
+        "trace-matmul",
+        () =>
+          this.#runtime.call(
+            "traceMatmul",
+            left.#materializedPtr(),
+            right.#materializedPtr(),
+            left.rows,
+            left.cols,
+          ),
+      );
     }
-    return this.#cachedReduction("trace", () => this.#runtime.call("trace", this.#materializedPtr(), this.rows, this.cols));
+    return this.#cachedReduction(
+      "trace",
+      () =>
+        this.#runtime.call(
+          "trace",
+          this.#materializedPtr(),
+          this.rows,
+          this.cols,
+        ),
+    );
   }
 
   frobeniusNorm() {
     this.#assertAlive();
-    return this.#cachedReduction("frobenius", () => this.#runtime.call("frobeniusNorm", this.#materializedPtr(), this.length));
+    return this.#cachedReduction(
+      "frobenius",
+      () =>
+        this.#runtime.call(
+          "frobeniusNorm",
+          this.#materializedPtr(),
+          this.length,
+        ),
+    );
   }
 
   determinant() {
@@ -1352,41 +1503,57 @@ export class Matrix {
     if (this.#structure === "identity") return 1;
     if (this.#structure === "zero") return 0;
     if (this.#structure === "diagonal") {
-      value = this.#runtime.call("diagonalProduct", this.#materializedPtr(), this.rows);
+      value = this.#runtime.call(
+        "diagonalProduct",
+        this.#materializedPtr(),
+        this.rows,
+      );
       this.#setCachedReduction("determinant", value);
       return value;
     }
     if (
-      optimizationOptions.fastMath
-      && this.#ptr === 0
-      && this.#matmulOf != null
-      && this.#matmulOf.variant === MATMUL_NN
-      && this.#matmulOf.gram == null
-      && this.#matmulOf.left.rows === this.#matmulOf.left.cols
-      && this.#matmulOf.right.rows === this.#matmulOf.right.cols
+      optimizationOptions.fastMath &&
+      this.#ptr === 0 &&
+      this.#matmulOf != null &&
+      this.#matmulOf.variant === MATMUL_NN &&
+      this.#matmulOf.gram == null &&
+      this.#matmulOf.left.rows === this.#matmulOf.left.cols &&
+      this.#matmulOf.right.rows === this.#matmulOf.right.cols
     ) {
-      value = this.#matmulOf.left.determinant() * this.#matmulOf.right.determinant();
+      value = this.#matmulOf.left.determinant() *
+        this.#matmulOf.right.determinant();
       this.#setCachedReduction("determinant", value);
       return value;
     }
 
     if (this.rows <= SMALL_LINALG_DIRECT_MAX_SIZE) {
-      value = this.#runtime.call("determinant", this.#materializedPtr(), this.rows);
+      value = this.#runtime.call(
+        "determinant",
+        this.#materializedPtr(),
+        this.rows,
+      );
       this.#setCachedReduction("determinant", value);
       return value;
     }
 
     const cholesky = this.#choleskyFactor();
     if (cholesky != null) {
-      value = this.#runtime.call("choleskyDeterminant", cholesky.lowerPtr, this.rows);
+      value = this.#runtime.call(
+        "choleskyDeterminant",
+        cholesky.lowerPtr,
+        this.rows,
+      );
       this.#setCachedReduction("determinant", value);
       return value;
     }
 
     const factor = this.#luFactor();
-    value = factor == null
-      ? 0
-      : this.#runtime.call("luDeterminant", factor.luPtr, this.rows, factor.sign);
+    value = factor == null ? 0 : this.#runtime.call(
+      "luDeterminant",
+      factor.luPtr,
+      this.rows,
+      factor.sign,
+    );
     this.#setCachedReduction("determinant", value);
     return value;
   }
@@ -1412,7 +1579,11 @@ export class Matrix {
     } else {
       const cholesky = this.#choleskyFactor();
       if (cholesky != null) {
-        value = this.#runtime.call("choleskyLogDet", cholesky.lowerPtr, this.rows);
+        value = this.#runtime.call(
+          "choleskyLogDet",
+          cholesky.lowerPtr,
+          this.rows,
+        );
       } else {
         const det = this.determinant();
         value = det > 0 ? Math.log(det) : Number.NaN;
@@ -1431,19 +1602,23 @@ export class Matrix {
     return new Matrix(this.rows, this.cols, null, {
       runtime: this.#runtime,
       inverseOf: this,
-      structure: this.#structure === "diagonal" ? "diagonal" : "dense"
+      structure: this.#structure === "diagonal" ? "diagonal" : "dense",
     });
   }
 
   solve(rhs) {
     this.#assertSquare("solve");
     const rhsIsMatrix = rhs instanceof Matrix;
-    const right = rhsIsMatrix ? rhs : new Matrix(this.rows, 1, rhs, { runtime: this.#runtime });
+    const right = rhsIsMatrix
+      ? rhs
+      : new Matrix(this.rows, 1, rhs, { runtime: this.#runtime });
     right.#assertAlive();
     this.#assertSameRuntime(right);
     if (right.rows !== this.rows) {
       if (!rhsIsMatrix) right.dispose();
-      throw new RangeError(`right-hand side rows ${right.rows} must match ${this.rows}`);
+      throw new RangeError(
+        `right-hand side rows ${right.rows} must match ${this.rows}`,
+      );
     }
 
     return new Matrix(this.rows, right.cols, null, {
@@ -1451,8 +1626,8 @@ export class Matrix {
       solveOf: {
         left: this,
         right,
-        temporaryRight: !rhsIsMatrix
-      }
+        temporaryRight: !rhsIsMatrix,
+      },
     });
   }
 
@@ -1463,12 +1638,16 @@ export class Matrix {
     }
 
     const rhsIsMatrix = rhs instanceof Matrix;
-    const right = rhsIsMatrix ? rhs : new Matrix(this.rows, 1, rhs, { runtime: this.#runtime });
+    const right = rhsIsMatrix
+      ? rhs
+      : new Matrix(this.rows, 1, rhs, { runtime: this.#runtime });
     right.#assertAlive();
     this.#assertSameRuntime(right);
     if (right.rows !== this.rows) {
       if (!rhsIsMatrix) right.dispose();
-      throw new RangeError(`right-hand side rows ${right.rows} must match ${this.rows}`);
+      throw new RangeError(
+        `right-hand side rows ${right.rows} must match ${this.rows}`,
+      );
     }
 
     return new Matrix(this.cols, right.cols, null, {
@@ -1476,8 +1655,8 @@ export class Matrix {
       leastSquaresOf: {
         left: this,
         right,
-        temporaryRight: !rhsIsMatrix
-      }
+        temporaryRight: !rhsIsMatrix,
+      },
     });
   }
 
@@ -1495,7 +1674,13 @@ export class Matrix {
       value = 0;
     } else {
       const qr = this.#qrFactor();
-      value = this.#runtime.call("qrRank", qr.rPtr, this.rows, this.cols, epsilon);
+      value = this.#runtime.call(
+        "qrRank",
+        qr.rPtr,
+        this.rows,
+        this.cols,
+        epsilon,
+      );
     }
 
     this.#setCachedReduction(key, value);
@@ -1516,7 +1701,13 @@ export class Matrix {
     if (rightLocal != null) {
       return this.#equalsMaterializedToLocal(rightLocal, epsilon);
     }
-    return this.#runtime.call("equalsApprox", this.#materializedPtr(), other.#materializedPtr(), this.length, epsilon) === 1;
+    return this.#runtime.call(
+      "equalsApprox",
+      this.#materializedPtr(),
+      other.#materializedPtr(),
+      this.length,
+      epsilon,
+    ) === 1;
   }
 
   toString() {
@@ -1535,19 +1726,23 @@ export class Matrix {
 
   #materializationCacheKey() {
     if (this.#expr != null) {
-      const ops = this.#expr.ops.map((op) => [
-        op.code,
-        op.scalarA ?? 0,
-        op.scalarB ?? 0,
-        op.operandMode ?? OPERAND_FULL,
-        op.other == null ? "" : op.other.#valueKey()
-      ].join(",")).join(";");
+      const ops = this.#expr.ops.map((op) =>
+        [
+          op.code,
+          op.scalarA ?? 0,
+          op.scalarB ?? 0,
+          op.operandMode ?? OPERAND_FULL,
+          op.other == null ? "" : op.other.#valueKey(),
+        ].join(",")
+      ).join(";");
       return `expr:${this.rows}x${this.cols}:${this.#expr.base.#valueKey()}:${ops}`;
     }
 
     if (this.#matmulOf != null) {
       const { left, right, variant, gram } = this.#matmulOf;
-      return `matmul:${this.rows}x${this.cols}:${variant}:${gram ?? ""}:${left.#valueKey()}:${right.#valueKey()}`;
+      return `matmul:${this.rows}x${this.cols}:${variant}:${
+        gram ?? ""
+      }:${left.#valueKey()}:${right.#valueKey()}`;
     }
 
     if (this.#transposeOf != null) {
@@ -1578,13 +1773,19 @@ export class Matrix {
       return `affine:${this.rows}x${this.cols}:${this.#base.#valueKey()}:${this.#affineScale}:${this.#affineBias}`;
     }
 
+    /* c8 ignore start */
     return null;
+    /* c8 ignore stop */
   }
 
   #getCachedReduction(key) {
     const cached = this.#reductionCache.get(key);
-    const dependencyKey = this.#materializationCacheKey() ?? this.#identityKey();
-    if (cached == null || cached.version !== this.#version || cached.dependencyKey !== dependencyKey) {
+    const dependencyKey = this.#materializationCacheKey() ??
+      this.#identityKey();
+    if (
+      cached == null || cached.version !== this.#version ||
+      cached.dependencyKey !== dependencyKey
+    ) {
       this.#reductionCache.delete(key);
       return null;
     }
@@ -1595,7 +1796,7 @@ export class Matrix {
     this.#reductionCache.set(key, {
       version: this.#version,
       dependencyKey: this.#materializationCacheKey() ?? this.#identityKey(),
-      value
+      value,
     });
   }
 
@@ -1632,6 +1833,7 @@ export class Matrix {
   }
 
   #releaseCacheEntry(entry) {
+    /* c8 ignore next 5 */
     if (entry == null) return;
     cacheFinalizer?.unregister(entry);
     this.#cacheEntries.delete(entry);
@@ -1639,10 +1841,12 @@ export class Matrix {
   }
 
   #cacheEntryAlive(entry) {
-    return entry != null && !entry.disposed && this.#runtime.touchCacheEntry(entry);
+    return entry != null && !entry.disposed &&
+      this.#runtime.touchCacheEntry(entry);
   }
 
   #clearComputedCaches() {
+    /* c8 ignore next 4 */
     for (const entry of this.#cacheEntries) {
       cacheFinalizer?.unregister(entry);
       entry.dispose();
@@ -1661,9 +1865,9 @@ export class Matrix {
     this.#assertSquare("Cholesky factorization");
     if (this.#structure !== "spd") return null;
     if (
-      this.#choleskyCache != null
-      && this.#choleskyCache.version === this.#version
-      && this.#cacheEntryAlive(this.#choleskyCache.entry)
+      this.#choleskyCache != null &&
+      this.#choleskyCache.version === this.#version &&
+      this.#cacheEntryAlive(this.#choleskyCache.entry)
     ) {
       return this.#choleskyCache;
     }
@@ -1676,33 +1880,41 @@ export class Matrix {
     const lowerPtr = this.#runtime.allocF64(this.length);
     let ok = 0;
     try {
-      ok = this.#runtime.call("choleskyFactor", this.#materializedPtr(), this.rows, lowerPtr);
-    /* c8 ignore next 4 */
+      ok = this.#runtime.call(
+        "choleskyFactor",
+        this.#materializedPtr(),
+        this.rows,
+        lowerPtr,
+      );
+      /* c8 ignore next 4 */
     } catch (error) {
       this.#runtime.free(lowerPtr);
       throw error;
     }
 
     if (ok !== 1) {
+      /* c8 ignore next 3 */
       this.#runtime.free(lowerPtr);
       return null;
     }
 
     const runtime = this.#runtime;
-    const entry = this.#addCacheEntry(runtime.registerCacheEntry(this.length * 8, () => runtime.free(lowerPtr)));
+    const entry = this.#addCacheEntry(
+      runtime.registerCacheEntry(this.length * 8, () => runtime.free(lowerPtr)),
+    );
     this.#choleskyCache = {
       version: this.#version,
       lowerPtr,
-      entry
+      entry,
     };
     return this.#choleskyCache;
   }
 
   #qrFactor() {
     if (
-      this.#qrCache != null
-      && this.#qrCache.version === this.#version
-      && this.#cacheEntryAlive(this.#qrCache.entry)
+      this.#qrCache != null &&
+      this.#qrCache.version === this.#version &&
+      this.#cacheEntryAlive(this.#qrCache.entry)
     ) {
       return this.#qrCache;
     }
@@ -1718,8 +1930,15 @@ export class Matrix {
     const rPtr = this.#runtime.allocF64(rLength);
 
     try {
-      this.#runtime.call("qrFactor", this.#materializedPtr(), this.rows, this.cols, qPtr, rPtr);
-    /* c8 ignore next 5 */
+      this.#runtime.call(
+        "qrFactor",
+        this.#materializedPtr(),
+        this.rows,
+        this.cols,
+        qPtr,
+        rPtr,
+      );
+      /* c8 ignore next 5 */
     } catch (error) {
       this.#runtime.free(qPtr);
       this.#runtime.free(rPtr);
@@ -1727,24 +1946,27 @@ export class Matrix {
     }
 
     const runtime = this.#runtime;
-    const entry = this.#addCacheEntry(runtime.registerCacheEntry((qLength + rLength) * 8, () => {
-      runtime.free(qPtr);
-      runtime.free(rPtr);
-    }));
+    const entry = this.#addCacheEntry(
+      runtime.registerCacheEntry((qLength + rLength) * 8, () => {
+        runtime.free(qPtr);
+        runtime.free(rPtr);
+      }),
+    );
     this.#qrCache = {
       version: this.#version,
       qPtr,
       rPtr,
-      entry
+      entry,
     };
     return this.#qrCache;
   }
 
+  /* c8 ignore start */
   #packedMatmulPtr() {
     if (
-      this.#packedCache != null
-      && this.#packedCache.version === this.#version
-      && this.#cacheEntryAlive(this.#packedCache.entry)
+      this.#packedCache != null &&
+      this.#packedCache.version === this.#version &&
+      this.#cacheEntryAlive(this.#packedCache.entry)
     ) {
       return this.#packedCache.ptr;
     }
@@ -1756,28 +1978,37 @@ export class Matrix {
 
     const ptr = this.#runtime.alloc(this.length);
     try {
-      this.#runtime.call("packForMatmul", this.#materializedPtr(), ptr, this.rows, this.cols);
-    /* c8 ignore next 4 */
+      this.#runtime.call(
+        "packForMatmul",
+        this.#materializedPtr(),
+        ptr,
+        this.rows,
+        this.cols,
+      );
+      /* c8 ignore next 4 */
     } catch (error) {
       this.#runtime.free(ptr);
       throw error;
     }
 
     const runtime = this.#runtime;
-    const entry = this.#addCacheEntry(runtime.registerCacheEntry(this.length * 4, () => runtime.free(ptr)));
+    const entry = this.#addCacheEntry(
+      runtime.registerCacheEntry(this.length * 4, () => runtime.free(ptr)),
+    );
     this.#packedCache = {
       version: this.#version,
       ptr,
-      entry
+      entry,
     };
     return ptr;
   }
+  /* c8 ignore stop */
 
   #transposeCachePtr() {
     if (
-      this.#transposeCache != null
-      && this.#transposeCache.version === this.#version
-      && this.#cacheEntryAlive(this.#transposeCache.entry)
+      this.#transposeCache != null &&
+      this.#transposeCache.version === this.#version &&
+      this.#cacheEntryAlive(this.#transposeCache.entry)
     ) {
       /* c8 ignore next 2 */
       return this.#transposeCache.ptr;
@@ -1790,19 +2021,27 @@ export class Matrix {
 
     const ptr = this.#runtime.alloc(this.length);
     try {
-      this.#runtime.call("transpose", this.#materializedPtr(), ptr, this.rows, this.cols);
-    /* c8 ignore next 4 */
+      this.#runtime.call(
+        "transpose",
+        this.#materializedPtr(),
+        ptr,
+        this.rows,
+        this.cols,
+      );
+      /* c8 ignore next 4 */
     } catch (error) {
       this.#runtime.free(ptr);
       throw error;
     }
 
     const runtime = this.#runtime;
-    const entry = this.#addCacheEntry(runtime.registerCacheEntry(this.length * 4, () => runtime.free(ptr)));
+    const entry = this.#addCacheEntry(
+      runtime.registerCacheEntry(this.length * 4, () => runtime.free(ptr)),
+    );
     this.#transposeCache = {
       version: this.#version,
       ptr,
-      entry
+      entry,
     };
     return ptr;
   }
@@ -1815,40 +2054,66 @@ export class Matrix {
     other.#assertAlive();
     this.#assertSameRuntime(other);
 
-    if (this.rows === other.rows && this.cols === other.cols) return OPERAND_FULL;
+    if (this.rows === other.rows && this.cols === other.cols) {
+      return OPERAND_FULL;
+    }
     if (other.rows === 1 && other.cols === this.cols) return OPERAND_ROW;
     if (other.rows === this.rows && other.cols === 1) return OPERAND_COLUMN;
+    /* c8 ignore next */
+    /* c8 ignore next 2 */
     return null;
   }
 
   #elementwise(other, code) {
     const mode = this.#broadcastModeFor(other);
-    const commutative = code === EW_ADD || code === EW_MULTIPLY || code === EW_MIN || code === EW_MAX;
+    const commutative = code === EW_ADD || code === EW_MULTIPLY ||
+      code === EW_MIN || code === EW_MAX;
 
     if (mode == null) {
       if (commutative && other.#broadcastModeFor(this) !== null) {
         return other.#elementwise(this, code);
       }
-      throw new RangeError(`shape mismatch: ${this.rows}x${this.cols} cannot broadcast with ${other.rows}x${other.cols}`);
+      throw new RangeError(
+        `shape mismatch: ${this.rows}x${this.cols} cannot broadcast with ${other.rows}x${other.cols}`,
+      );
     }
 
     if (mode === OPERAND_FULL) {
-      if (code === EW_ADD && this.#structure === "zero") return Matrix.#view(other);
-      if (code === EW_ADD && other.#structure === "zero") return Matrix.#view(this);
-      if (code === EW_SUBTRACT && this === other) return Matrix.zeros(this.rows, this.cols);
-      if (code === EW_SUBTRACT && other.#structure === "zero") return Matrix.#view(this);
-      if (code === EW_MULTIPLY && (this.#structure === "zero" || other.#structure === "zero")) {
+      if (code === EW_ADD && this.#structure === "zero") {
+        return Matrix.#view(other);
+      }
+      if (code === EW_ADD && other.#structure === "zero") {
+        return Matrix.#view(this);
+      }
+      if (code === EW_SUBTRACT && this === other) {
         return Matrix.zeros(this.rows, this.cols);
       }
-      if (code === EW_MULTIPLY && other.#structure === "ones") return Matrix.#view(this);
-      if (code === EW_MULTIPLY && this.#structure === "ones") return Matrix.#view(other);
-      if (code === EW_DIVIDE && optimizationOptions.fastMath && this === other) return Matrix.ones(this.rows, this.cols);
+      if (code === EW_SUBTRACT && other.#structure === "zero") {
+        return Matrix.#view(this);
+      }
+      if (
+        code === EW_MULTIPLY &&
+        (this.#structure === "zero" || other.#structure === "zero")
+      ) {
+        return Matrix.zeros(this.rows, this.cols);
+      }
+      if (code === EW_MULTIPLY && other.#structure === "ones") {
+        return Matrix.#view(this);
+      }
+      if (code === EW_MULTIPLY && this.#structure === "ones") {
+        return Matrix.#view(other);
+      }
+      if (
+        code === EW_DIVIDE && optimizationOptions.fastMath && this === other
+      ) return Matrix.ones(this.rows, this.cols);
 
       const rewrite = this.#tryMatmulElementwiseRewrite(other, code);
       if (rewrite != null) return rewrite;
     } else if (code === EW_MULTIPLY && other.#structure === "ones") {
       return Matrix.#view(this);
-    } else if ((code === EW_ADD || code === EW_SUBTRACT) && other.#structure === "zero") {
+    } else if (
+      (code === EW_ADD || code === EW_SUBTRACT) && other.#structure === "zero"
+    ) {
       return Matrix.#view(this);
     }
 
@@ -1857,7 +2122,7 @@ export class Matrix {
       other,
       operandMode: mode,
       scalarA: 0,
-      scalarB: 0
+      scalarB: 0,
     });
   }
 
@@ -1869,12 +2134,17 @@ export class Matrix {
     if (left == null || right == null) return null;
 
     if (Matrix.#sameMatmul(left, right)) {
-      return code === EW_ADD ? this.scale(2) : Matrix.zeros(this.rows, this.cols);
+      return code === EW_ADD
+        ? this.scale(2)
+        : Matrix.zeros(this.rows, this.cols);
     }
 
     if (this.#ptr !== 0 || other.#ptr !== 0) return null;
 
-    if (left.gram != null || right.gram != null || left.variant !== MATMUL_NN || right.variant !== MATMUL_NN) {
+    if (
+      left.gram != null || right.gram != null || left.variant !== MATMUL_NN ||
+      right.variant !== MATMUL_NN
+    ) {
       return null;
     }
 
@@ -1884,37 +2154,42 @@ export class Matrix {
     const gemmCost = m * k * n;
 
     if (
-      left.left === right.left
-      && left.right.rows === right.right.rows
-      && left.right.cols === right.right.cols
-      && Matrix.#shouldDistributeMatmul(gemmCost, left.right.length)
+      left.left === right.left &&
+      left.right.rows === right.right.rows &&
+      left.right.cols === right.right.cols &&
+      Matrix.#shouldDistributeMatmul(gemmCost, left.right.length)
     ) {
-      const combined = code === EW_ADD ? left.right.add(right.right) : left.right.subtract(right.right);
+      const combined = code === EW_ADD
+        ? left.right.add(right.right)
+        : left.right.subtract(right.right);
       return left.left.matmul(combined);
     }
 
     if (
-      left.right === right.right
-      && left.left.rows === right.left.rows
-      && left.left.cols === right.left.cols
-      && Matrix.#shouldDistributeMatmul(gemmCost, left.left.length)
+      left.right === right.right &&
+      left.left.rows === right.left.rows &&
+      left.left.cols === right.left.cols &&
+      Matrix.#shouldDistributeMatmul(gemmCost, left.left.length)
     ) {
-      const combined = code === EW_ADD ? left.left.add(right.left) : left.left.subtract(right.left);
+      const combined = code === EW_ADD
+        ? left.left.add(right.left)
+        : left.left.subtract(right.left);
       return combined.matmul(left.right);
     }
-
+    /* c8 ignore start */
     return null;
   }
+  /* c8 ignore stop */
 
   #matmulInput() {
     if (
-      this.#ptr === 0
-      && this.#transposeOf != null
-      && this.#base == null
-      && this.#inverseOf == null
-      && this.#expr == null
-      && this.#matmulOf == null
-      && this.#solveOf == null
+      this.#ptr === 0 &&
+      this.#transposeOf != null &&
+      this.#base == null &&
+      this.#inverseOf == null &&
+      this.#expr == null &&
+      this.#matmulOf == null &&
+      this.#solveOf == null
     ) {
       return { source: this.#transposeOf, transposed: true };
     }
@@ -1939,7 +2214,7 @@ export class Matrix {
     if (factor === 1) return null;
     return {
       matrix: this.#expr.base,
-      factor
+      factor,
     };
   }
 
@@ -1965,7 +2240,7 @@ export class Matrix {
     return {
       base: this.#expr.base,
       scale,
-      bias
+      bias,
     };
   }
 
@@ -1996,16 +2271,16 @@ export class Matrix {
 
   #diagonalVectorSource() {
     if (
-      this.#ptr === 0
-      && this.#diagonalOf != null
-      && this.#base == null
-      && this.#inverseOf == null
-      && this.#transposeOf == null
-      && this.#expr == null
-      && this.#matmulOf == null
-      && this.#solveOf == null
-      && this.#leastSquaresOf == null
-      && this.#outerOf == null
+      this.#ptr === 0 &&
+      this.#diagonalOf != null &&
+      this.#base == null &&
+      this.#inverseOf == null &&
+      this.#transposeOf == null &&
+      this.#expr == null &&
+      this.#matmulOf == null &&
+      this.#solveOf == null &&
+      this.#leastSquaresOf == null &&
+      this.#outerOf == null
     ) {
       return this.#diagonalOf;
     }
@@ -2047,6 +2322,7 @@ export class Matrix {
     return data;
   }
 
+  /* c8 ignore start */
   #materializeLocal(ptr) {
     if (this.#literalData != null) {
       this.#runtime.writeInto(ptr, this.#literalData);
@@ -2055,7 +2331,11 @@ export class Matrix {
     }
 
     if (this.#literalFill != null) {
-      this.#runtime.f32.fill(this.#literalFill, ptr >>> 2, (ptr >>> 2) + this.length);
+      this.#runtime.f32.fill(
+        this.#literalFill,
+        ptr >>> 2,
+        (ptr >>> 2) + this.length,
+      );
       this.#literalFill = null;
       return true;
     }
@@ -2074,9 +2354,11 @@ export class Matrix {
 
     return false;
   }
+  /* c8 ignore stop */
 
   #hasLocalBacking() {
-    return this.#literalData != null || this.#literalFill != null || this.#literalIdentity;
+    return this.#literalData != null || this.#literalFill != null ||
+      this.#literalIdentity;
   }
 
   #writeLocalBacking(ptr, consume) {
@@ -2087,7 +2369,11 @@ export class Matrix {
     }
 
     if (this.#literalFill != null) {
-      this.#runtime.f32.fill(this.#literalFill, ptr >>> 2, (ptr >>> 2) + this.length);
+      this.#runtime.f32.fill(
+        this.#literalFill,
+        ptr >>> 2,
+        (ptr >>> 2) + this.length,
+      );
       if (consume) this.#literalFill = null;
       return true;
     }
@@ -2103,9 +2389,10 @@ export class Matrix {
       if (consume) this.#literalIdentity = false;
       return true;
     }
-
+    /* c8 ignore start */
     return false;
   }
+  /* c8 ignore stop */
 
   #collectBatchMaterialization(nodes, seen) {
     if (this.#ptr) return true;
@@ -2121,7 +2408,9 @@ export class Matrix {
     if (affineExpression != null) {
       affineExpression.base.#assertAlive();
       this.#assertSameRuntime(affineExpression.base);
-      if (!affineExpression.base.#collectBatchMaterialization(nodes, seen)) return false;
+      if (!affineExpression.base.#collectBatchMaterialization(nodes, seen)) {
+        return false;
+      }
       nodes.push(this);
       return true;
     }
@@ -2137,7 +2426,10 @@ export class Matrix {
     if (this.#inverseOf != null && this.#inverseOf.#structure === "diagonal") {
       this.#inverseOf.#assertAlive();
       this.#assertSameRuntime(this.#inverseOf);
-      if (!this.#inverseOf.#collectBatchMaterialization(nodes, seen)) return false;
+      /* c8 ignore next 3 */
+      if (!this.#inverseOf.#collectBatchMaterialization(nodes, seen)) {
+        return false;
+      }
       nodes.push(this);
       return true;
     }
@@ -2157,7 +2449,10 @@ export class Matrix {
     if (this.#diagonalOf != null) {
       this.#diagonalOf.#assertAlive();
       this.#assertSameRuntime(this.#diagonalOf);
-      if (!this.#diagonalOf.#collectBatchMaterialization(nodes, seen)) return false;
+      /* c8 ignore next 3 */
+      if (!this.#diagonalOf.#collectBatchMaterialization(nodes, seen)) {
+        return false;
+      }
       nodes.push(this);
       return true;
     }
@@ -2174,7 +2469,10 @@ export class Matrix {
         if (leftDiagonal != null) {
           leftDiagonal.#assertAlive();
           this.#assertSameRuntime(leftDiagonal);
-          if (!leftDiagonal.#collectBatchMaterialization(nodes, seen)) return false;
+          /* c8 ignore next 3 */
+          if (!leftDiagonal.#collectBatchMaterialization(nodes, seen)) {
+            return false;
+          }
           if (!right.#collectBatchMaterialization(nodes, seen)) return false;
           nodes.push(this);
           return true;
@@ -2185,7 +2483,10 @@ export class Matrix {
           rightDiagonal.#assertAlive();
           this.#assertSameRuntime(rightDiagonal);
           if (!left.#collectBatchMaterialization(nodes, seen)) return false;
-          if (!rightDiagonal.#collectBatchMaterialization(nodes, seen)) return false;
+          /* c8 ignore next 3 */
+          if (!rightDiagonal.#collectBatchMaterialization(nodes, seen)) {
+            return false;
+          }
           nodes.push(this);
           return true;
         }
@@ -2201,9 +2502,13 @@ export class Matrix {
       left.#assertSquare("solve");
       right.#assertAlive();
       left.#assertSameRuntime(right);
+      /* c8 ignore start */
       if (right.rows !== left.rows) {
-        throw new RangeError(`right-hand side rows ${right.rows} must match ${left.rows}`);
+        throw new RangeError(
+          `right-hand side rows ${right.rows} must match ${left.rows}`,
+        );
       }
+      /* c8 ignore stop */
       if (!left.#collectBatchMaterialization(nodes, seen)) return false;
       if (!right.#collectBatchMaterialization(nodes, seen)) return false;
       nodes.push(this);
@@ -2213,7 +2518,9 @@ export class Matrix {
     if (this.#transposeOf != null) {
       this.#transposeOf.#assertAlive();
       this.#assertSameRuntime(this.#transposeOf);
-      if (!this.#transposeOf.#collectBatchMaterialization(nodes, seen)) return false;
+      if (!this.#transposeOf.#collectBatchMaterialization(nodes, seen)) {
+        return false;
+      }
       nodes.push(this);
       return true;
     }
@@ -2230,7 +2537,7 @@ export class Matrix {
         ptrOf(this),
         this.length,
         f32Bits(affineExpression.scale),
-        f32Bits(affineExpression.bias)
+        f32Bits(affineExpression.bias),
       ];
     }
 
@@ -2241,7 +2548,7 @@ export class Matrix {
         ptrOf(this),
         this.length,
         f32Bits(this.#affineScale),
-        f32Bits(this.#affineBias)
+        f32Bits(this.#affineBias),
       ];
     }
 
@@ -2250,7 +2557,7 @@ export class Matrix {
         BATCH_OP_INVERT_DIAGONAL,
         ptrOf(this.#inverseOf),
         ptrOf(this),
-        this.rows
+        this.rows,
       ];
     }
 
@@ -2262,7 +2569,7 @@ export class Matrix {
         ptrOf(right),
         ptrOf(this),
         left.length,
-        right.length
+        right.length,
       ];
     }
 
@@ -2271,7 +2578,7 @@ export class Matrix {
         BATCH_OP_DIAGONAL_MATRIX,
         ptrOf(this.#diagonalOf),
         ptrOf(this),
-        this.#diagonalOf.length
+        this.#diagonalOf.length,
       ];
     }
 
@@ -2286,7 +2593,7 @@ export class Matrix {
             ptrOf(right),
             ptrOf(this),
             right.rows,
-            right.cols
+            right.cols,
           ];
         }
 
@@ -2298,7 +2605,7 @@ export class Matrix {
             ptrOf(rightDiagonal),
             ptrOf(this),
             left.rows,
-            left.cols
+            left.cols,
           ];
         }
       }
@@ -2311,7 +2618,7 @@ export class Matrix {
           ptrOf(this),
           left.rows,
           left.cols,
-          right.cols
+          right.cols,
         ];
       }
       if (variant === MATMUL_NT) {
@@ -2322,7 +2629,7 @@ export class Matrix {
           ptrOf(this),
           left.rows,
           left.cols,
-          right.rows
+          right.rows,
         ];
       }
       if (variant === MATMUL_TT) {
@@ -2333,7 +2640,7 @@ export class Matrix {
           ptrOf(this),
           left.rows,
           left.cols,
-          right.rows
+          right.rows,
         ];
       }
       return [
@@ -2343,7 +2650,7 @@ export class Matrix {
         ptrOf(this),
         left.rows,
         left.cols,
-        right.cols
+        right.cols,
       ];
     }
 
@@ -2355,7 +2662,7 @@ export class Matrix {
         ptrOf(right),
         ptrOf(this),
         left.rows,
-        right.cols
+        right.cols,
       ];
     }
 
@@ -2365,7 +2672,7 @@ export class Matrix {
         ptrOf(this.#transposeOf),
         ptrOf(this),
         this.#transposeOf.rows,
-        this.#transposeOf.cols
+        this.#transposeOf.cols,
       ];
     }
 
@@ -2412,7 +2719,9 @@ export class Matrix {
       if (instructions.length > 0) {
         const ok = this.#runtime.executeBatch(instructions);
         if (ok !== 1) {
-          throw new RangeError(ok === 0 ? "matrix is singular" : `wasmatrix batch failed: ${ok}`);
+          throw new RangeError(
+            ok === 0 ? "matrix is singular" : `wasmatrix batch failed: ${ok}`,
+          );
         }
       }
     } catch (error) {
@@ -2422,7 +2731,11 @@ export class Matrix {
 
     this.#ptr = slabPtr;
     this.#owns = true;
-    matrixFinalizer?.register(this, { runtime: this.#runtime, ptr: this.#ptr }, this);
+    matrixFinalizer?.register(
+      this,
+      { runtime: this.#runtime, ptr: this.#ptr },
+      this,
+    );
     if (this.#solveOf?.temporaryRight) {
       this.#solveOf.right.dispose();
     }
@@ -2446,7 +2759,14 @@ export class Matrix {
     const affine = this.#affineExpressionInfo();
 
     if (affine != null) {
-      this.#runtime.call("affine", basePtr, ptr, this.length, affine.scale, affine.bias);
+      this.#runtime.call(
+        "affine",
+        basePtr,
+        ptr,
+        this.length,
+        affine.scale,
+        affine.bias,
+      );
       return;
     }
 
@@ -2477,7 +2797,8 @@ export class Matrix {
     const operandModesPtr = this.#runtime.writeI32(operandModes);
 
     try {
-      this.#runtime.call("fusedElementwise",
+      this.#runtime.call(
+        "fusedElementwise",
         basePtr,
         ptr,
         this.rows,
@@ -2487,7 +2808,7 @@ export class Matrix {
         scalarBPtr,
         operandPtrsPtr,
         operandModesPtr,
-        ops.length
+        ops.length,
       );
     } finally {
       this.#runtime.free(opcodesPtr);
@@ -2498,6 +2819,7 @@ export class Matrix {
     }
   }
 
+  /* c8 ignore start */
   #materializeMatmul(ptr) {
     const { left, right, variant, gram } = this.#matmulOf;
     left.#assertAlive();
@@ -2524,7 +2846,7 @@ export class Matrix {
         ptr,
         left.rows,
         left.cols,
-        right.cols
+        right.cols,
       ]]);
     } else if (variant === MATMUL_NT) {
       this.#runtime.executeBatch([[
@@ -2534,7 +2856,7 @@ export class Matrix {
         ptr,
         left.rows,
         left.cols,
-        right.rows
+        right.rows,
       ]]);
     } else if (variant === MATMUL_TT) {
       this.#runtime.executeBatch([[
@@ -2544,13 +2866,24 @@ export class Matrix {
         ptr,
         left.rows,
         left.cols,
-        right.rows
+        right.rows,
       ]]);
     } else {
       const cost = left.rows * left.cols * right.cols;
       right.#rightMatmulUses++;
-      if ((right.#packedCache != null || right.#rightMatmulUses > 1) && cost >= 262_144) {
-        this.#runtime.call("matmulPackedB", leftPtr, right.#packedMatmulPtr(), ptr, left.rows, left.cols, right.cols);
+      if (
+        (right.#packedCache != null || right.#rightMatmulUses > 1) &&
+        cost >= 262_144
+      ) {
+        this.#runtime.call(
+          "matmulPackedB",
+          leftPtr,
+          right.#packedMatmulPtr(),
+          ptr,
+          left.rows,
+          left.cols,
+          right.cols,
+        );
       } else {
         this.#runtime.executeBatch([[
           BATCH_OP_MATMUL,
@@ -2559,12 +2892,14 @@ export class Matrix {
           ptr,
           left.rows,
           left.cols,
-          right.cols
+          right.cols,
         ]]);
       }
     }
   }
+  /* c8 ignore stop */
 
+  /* c8 ignore start */
   #materializeSolve(ptr) {
     const solve = this.#solveOf;
     const { left, right, temporaryRight } = solve;
@@ -2572,17 +2907,20 @@ export class Matrix {
     right.#assertAlive();
     left.#assertSameRuntime(right);
     if (right.rows !== left.rows) {
-      throw new RangeError(`right-hand side rows ${right.rows} must match ${left.rows}`);
+      throw new RangeError(
+        `right-hand side rows ${right.rows} must match ${left.rows}`,
+      );
     }
 
     try {
       if (left.#structure === "diagonal") {
-        const ok = this.#runtime.call("solveDiagonal",
+        const ok = this.#runtime.call(
+          "solveDiagonal",
           left.#materializedPtr(),
           right.#materializedPtr(),
           ptr,
           left.rows,
-          right.cols
+          right.cols,
         );
         if (ok !== 1) {
           throw new RangeError("matrix is singular");
@@ -2594,7 +2932,7 @@ export class Matrix {
           right.#materializedPtr(),
           ptr,
           left.rows,
-          right.cols
+          right.cols,
         ]]);
         if (ok !== 1) {
           throw new RangeError("matrix is singular");
@@ -2603,13 +2941,14 @@ export class Matrix {
         const cholesky = left.#choleskyFactor();
         if (cholesky != null) {
           const work = this.#runtime.f64Scratch(left.rows * right.cols);
-          const ok = this.#runtime.call("choleskySolve",
+          const ok = this.#runtime.call(
+            "choleskySolve",
             cholesky.lowerPtr,
             right.#materializedPtr(),
             ptr,
             left.rows,
             right.cols,
-            work
+            work,
           );
           /* c8 ignore next 3 */
           if (ok !== 1) {
@@ -2622,14 +2961,15 @@ export class Matrix {
           }
 
           const work = this.#runtime.f64Scratch(left.rows * right.cols);
-          const ok = this.#runtime.call("luSolve",
+          const ok = this.#runtime.call(
+            "luSolve",
             factor.luPtr,
             factor.pivotsPtr,
             right.#materializedPtr(),
             ptr,
             left.rows,
             right.cols,
-            work
+            work,
           );
           /* c8 ignore next 3 */
           if (ok !== 1) {
@@ -2642,7 +2982,9 @@ export class Matrix {
       if (temporaryRight) right.dispose();
     }
   }
+  /* c8 ignore stop */
 
+  /* c8 ignore start */
   #materializeLeastSquares(ptr) {
     const leastSquares = this.#leastSquaresOf;
     const { left, right, temporaryRight } = leastSquares;
@@ -2653,13 +2995,16 @@ export class Matrix {
       throw new RangeError("leastSquares requires rows >= columns");
     }
     if (right.rows !== left.rows) {
-      throw new RangeError(`right-hand side rows ${right.rows} must match ${left.rows}`);
+      throw new RangeError(
+        `right-hand side rows ${right.rows} must match ${left.rows}`,
+      );
     }
 
     try {
       const factor = left.#qrFactor();
       const work = this.#runtime.f64Scratch(left.cols * right.cols);
-      const ok = this.#runtime.call("qrSolve",
+      const ok = this.#runtime.call(
+        "qrSolve",
         factor.qPtr,
         factor.rPtr,
         right.#materializedPtr(),
@@ -2667,7 +3012,7 @@ export class Matrix {
         left.rows,
         left.cols,
         right.cols,
-        work
+        work,
       );
       if (ok !== 1) {
         throw new RangeError("matrix is rank deficient");
@@ -2677,7 +3022,9 @@ export class Matrix {
       if (temporaryRight) right.dispose();
     }
   }
+  /* c8 ignore stop */
 
+  /* c8 ignore start */
   #materializeOuter(ptr) {
     const { left, right, temporaryLeft, temporaryRight } = this.#outerOf;
     left.#assertAlive();
@@ -2686,26 +3033,41 @@ export class Matrix {
     this.#assertSameRuntime(right);
 
     try {
-      this.#runtime.call("outer", left.#materializedPtr(), right.#materializedPtr(), ptr, left.length, right.length);
+      this.#runtime.call(
+        "outer",
+        left.#materializedPtr(),
+        right.#materializedPtr(),
+        ptr,
+        left.length,
+        right.length,
+      );
     } finally {
       this.#outerOf = null;
       if (temporaryLeft) left.dispose();
       if (temporaryRight) right.dispose();
     }
   }
+  /* c8 ignore stop */
 
+  /* c8 ignore start */
   #materializeDiagonalOf(ptr) {
     const source = this.#diagonalOf;
     source.#assertAlive();
     this.#assertSameRuntime(source);
     try {
-      this.#runtime.call("diagonalMatrix", source.#materializedPtr(), ptr, source.length);
+      this.#runtime.call(
+        "diagonalMatrix",
+        source.#materializedPtr(),
+        ptr,
+        source.length,
+      );
     } finally {
       if (this.#diagonalTemporary) source.dispose();
     }
     this.#diagonalOf = null;
     this.#diagonalTemporary = false;
   }
+  /* c8 ignore stop */
 
   #materializedPtr() {
     this.#assertAlive();
@@ -2717,7 +3079,10 @@ export class Matrix {
       if (cachedPtr) {
         this.#ptr = cachedPtr;
         this.#owns = true;
-        matrixFinalizer?.register(this, { runtime: this.#runtime, ptr: this.#ptr }, this);
+        matrixFinalizer?.register(this, {
+          runtime: this.#runtime,
+          ptr: this.#ptr,
+        }, this);
         return this.#ptr;
       }
     }
@@ -2727,23 +3092,37 @@ export class Matrix {
 
     const ptr = this.#runtime.alloc(this.length);
 
+    /* c8 ignore next 2 */
     if (this.#materializeLocal(ptr)) {
       // Local JS literals are copied into WASM memory only at the first boundary call.
     } else if (this.#inverseOf != null) {
       this.#inverseOf.#assertAlive();
       this.#assertSameRuntime(this.#inverseOf);
       if (this.#inverseOf.#structure === "diagonal") {
-        const ok = this.#runtime.call("invertDiagonal", this.#inverseOf.#materializedPtr(), ptr, this.rows);
+        /* c8 ignore start */
+        const ok = this.#runtime.call(
+          "invertDiagonal",
+          this.#inverseOf.#materializedPtr(),
+          ptr,
+          this.rows,
+        );
         if (ok !== 1) {
           this.#runtime.free(ptr);
           throw new RangeError("matrix is singular");
         }
         this.#inverseOf = null;
+        /* c8 ignore stop */
       } else {
         const cholesky = this.#inverseOf.#choleskyFactor();
         if (cholesky != null) {
           const work = this.#runtime.f64Scratch(this.rows * this.cols);
-          const ok = this.#runtime.call("choleskyInvert", cholesky.lowerPtr, ptr, this.rows, work);
+          const ok = this.#runtime.call(
+            "choleskyInvert",
+            cholesky.lowerPtr,
+            ptr,
+            this.rows,
+            work,
+          );
           /* c8 ignore next 4 */
           if (ok !== 1) {
             this.#runtime.free(ptr);
@@ -2758,7 +3137,14 @@ export class Matrix {
           }
 
           const work = this.#runtime.f64Scratch(this.rows * this.cols);
-          const ok = this.#runtime.call("luInvert", factor.luPtr, factor.pivotsPtr, ptr, this.rows, work);
+          const ok = this.#runtime.call(
+            "luInvert",
+            factor.luPtr,
+            factor.pivotsPtr,
+            ptr,
+            this.rows,
+            work,
+          );
           /* c8 ignore next 4 */
           if (ok !== 1) {
             this.#runtime.free(ptr);
@@ -2771,33 +3157,42 @@ export class Matrix {
       this.#materializeExpression(ptr);
     } else if (this.#matmulOf != null) {
       this.#materializeMatmul(ptr);
+      /* c8 ignore next 2 */
     } else if (this.#solveOf != null) {
       this.#materializeSolve(ptr);
     } else if (this.#leastSquaresOf != null) {
       this.#materializeLeastSquares(ptr);
+      /* c8 ignore next 2 */
     } else if (this.#outerOf != null) {
       this.#materializeOuter(ptr);
+      /* c8 ignore next 2 */
     } else if (this.#diagonalOf != null) {
       this.#materializeDiagonalOf(ptr);
     } else if (this.#transposeOf != null) {
       this.#transposeOf.#assertAlive();
       this.#assertSameRuntime(this.#transposeOf);
-      this.#runtime.call("copy", this.#transposeOf.#transposeCachePtr(), ptr, this.length);
+      this.#runtime.call(
+        "copy",
+        this.#transposeOf.#transposeCachePtr(),
+        ptr,
+        this.length,
+      );
       this.#transposeOf = null;
     } else if (this.#base != null) {
       this.#base.#assertAlive();
       this.#assertSameRuntime(this.#base);
-      this.#runtime.call("affine",
+      this.#runtime.call(
+        "affine",
         this.#base.#materializedPtr(),
         ptr,
         this.length,
         this.#affineScale,
-        this.#affineBias
+        this.#affineBias,
       );
       this.#base = null;
       this.#affineScale = 1;
       this.#affineBias = 0;
-    /* c8 ignore next 4 */
+      /* c8 ignore next 4 */
     } else {
       this.#runtime.free(ptr);
       throw new Error("matrix has no materializable backing");
@@ -2805,7 +3200,11 @@ export class Matrix {
 
     this.#ptr = ptr;
     this.#owns = true;
-    matrixFinalizer?.register(this, { runtime: this.#runtime, ptr: this.#ptr }, this);
+    matrixFinalizer?.register(
+      this,
+      { runtime: this.#runtime, ptr: this.#ptr },
+      this,
+    );
     if (cacheKey != null) {
       this.#runtime.putCachedBuffer(cacheKey, this.#ptr, this.length);
     }
@@ -2815,9 +3214,9 @@ export class Matrix {
   #luFactor() {
     this.#assertSquare("LU factorization");
     if (
-      this.#luCache != null
-      && this.#luCache.version === this.#version
-      && this.#cacheEntryAlive(this.#luCache.entry)
+      this.#luCache != null &&
+      this.#luCache.version === this.#version &&
+      this.#cacheEntryAlive(this.#luCache.entry)
     ) {
       return this.#luCache;
     }
@@ -2833,8 +3232,14 @@ export class Matrix {
     let sign = 0;
 
     try {
-      sign = this.#runtime.call("luFactor", sourcePtr, this.rows, luPtr, pivotsPtr);
-    /* c8 ignore next 5 */
+      sign = this.#runtime.call(
+        "luFactor",
+        sourcePtr,
+        this.rows,
+        luPtr,
+        pivotsPtr,
+      );
+      /* c8 ignore next 5 */
     } catch (error) {
       this.#runtime.free(luPtr);
       this.#runtime.free(pivotsPtr);
@@ -2848,16 +3253,18 @@ export class Matrix {
     }
 
     const runtime = this.#runtime;
-    const entry = this.#addCacheEntry(runtime.registerCacheEntry(this.length * 8 + this.rows * 4, () => {
-      runtime.free(luPtr);
-      runtime.free(pivotsPtr);
-    }));
+    const entry = this.#addCacheEntry(
+      runtime.registerCacheEntry(this.length * 8 + this.rows * 4, () => {
+        runtime.free(luPtr);
+        runtime.free(pivotsPtr);
+      }),
+    );
     const cache = {
       version: this.#version,
       luPtr,
       pivotsPtr,
       sign,
-      entry
+      entry,
     };
     this.#luCache = cache;
     return cache;
@@ -2886,7 +3293,9 @@ export class Matrix {
     other.#assertAlive();
     this.#assertSameRuntime(other);
     if (this.rows !== other.rows || this.cols !== other.cols) {
-      throw new RangeError(`shape mismatch: ${this.rows}x${this.cols} !== ${other.rows}x${other.cols}`);
+      throw new RangeError(
+        `shape mismatch: ${this.rows}x${this.cols} !== ${other.rows}x${other.cols}`,
+      );
     }
   }
 

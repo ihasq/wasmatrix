@@ -1,0 +1,76 @@
+{
+  "name": "wasmatrix",
+  "version": "0.0.8",
+  "description": "SIMD-required WebAssembly matrix operations powered by AssemblyScript",
+  "keywords": [
+    "wasm",
+    "simd",
+    "matrix",
+    "assemblyscript",
+    "linear-algebra"
+  ],
+  "homepage": "https://github.com/ihasq/wasmatrix#readme",
+  "bugs": {
+    "url": "https://github.com/ihasq/wasmatrix/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ihasq/wasmatrix.git"
+  },
+  "license": "MIT",
+  "author": "ihasq",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./wasmatrix.wit": "./dist/wasmatrix.wit"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "generate": "npm run generate:component && npm run generate:adapter",
+    "generate:component": "node --import ./scripts/oxc-ts-register.mjs scripts/generate-component-mod.ts",
+    "generate:adapter": "node --import ./scripts/oxc-ts-register.mjs scripts/generate-js-adapter.ts",
+    "build": "npm run generate:component && npm run build:wasm && npm run build:ts && npm run build:dist",
+    "build:wasm": "asc --config asconfig.json --target release",
+    "build:component": "npm run generate:component && npm run build:wasm:component",
+    "build:wasm:component": "asc --config asconfig.component.json --target release",
+    "build:wkg": "npm run build:component",
+    "build:ts": "npm run generate:adapter && tsc -p tsconfig.json",
+    "build:dist": "node --import ./scripts/oxc-ts-register.mjs scripts/prepare-dist.ts build/wasmatrix.wasm",
+    "build:debug": "npm run generate && asc --config asconfig.json --target debug && npm run build:ts && node --import ./scripts/oxc-ts-register.mjs scripts/prepare-dist.ts build/wasmatrix.debug.wasm",
+    "build:component:debug": "npm run generate:component && asc --config asconfig.component.json --target debug",
+    "docs:dev": "npm --prefix docs run start",
+    "docs:build": "npm --prefix docs run build",
+    "docs:serve": "npm --prefix docs run serve",
+    "pages:build": "npm run docs:build",
+    "test": "npm run build && npm run build:component && node --import ./scripts/oxc-ts-register.mjs --test test/*.test.ts",
+    "coverage": "npm run build && npm run build:component && c8 --reporter=lcov --reports-dir=coverage node --import ./scripts/oxc-ts-register.mjs --test test/*.test.ts",
+    "coverage:codecov": "npm run coverage && node --import ./scripts/oxc-ts-register.mjs scripts/prepare-codecov-lcov.ts",
+    "test:e2e": "npm run benchmark:routes",
+    "test:e2e:transparency": "npm run benchmark:routes",
+    "test:e2e:benchmark": "npm run benchmark:routes",
+    "benchmark:routes": "npm run build && node --import ./scripts/oxc-ts-register.mjs --test test/e2e-routing-benchmark.ts",
+    "benchmark": "npm run test:e2e:benchmark",
+    "fmt": "deno task fmt",
+    "lint": "deno task lint"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
+    "@oxc-node/core": "^0.1.0",
+    "@types/node": "^24.10.2",
+    "assemblyscript": "^0.28.19",
+    "c8": "^10.1.3",
+    "typescript": "^5.9.3"
+  }
+}

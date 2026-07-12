@@ -135,7 +135,14 @@ test("API use cases perform real calculations across every Matrix method", () =>
   const measurements = callStatic("from", 2, 3, [1.2, -1.8, 2.5, 4.1, 0, -3.3]);
   assert.equal(get(measurements, "length"), 6);
   assert.equal(Number.isInteger(get(measurements, "byteOffset")), true);
-  assertArrayAlmostEqual(get(measurements, "data"), [1.2, -1.8, 2.5, 4.1, 0, -3.3]);
+  assertArrayAlmostEqual(get(measurements, "data"), [
+    1.2,
+    -1.8,
+    2.5,
+    4.1,
+    0,
+    -3.3,
+  ]);
 
   const frozenMeasurements = call(measurements, "clone");
   call(measurements, "set", 0, 0, 2.2);
@@ -151,23 +158,44 @@ test("API use cases perform real calculations across every Matrix method", () =>
     2,
     [2.2, -1.8, 2.5, 4.1, 0, -3.3],
   );
-  assertArrayAlmostEqual(call(measurements, "toFloat32Array"), [2.2, -1.8, 2.5, 4.1, 0, -3.3]);
-  assertArrayAlmostEqual(call(measurements, "toFloat32ArrayView"), [2.2, -1.8, 2.5, 4.1, 0, -3.3]);
-  assert.deepEqual(call(measurements, "toArrayView").map((row) => Array.from(row)), [
-    [2.2, -1.8, 2.5],
-    [4.1, 0, -3.3],
+  assertArrayAlmostEqual(call(measurements, "toFloat32Array"), [
+    2.2,
+    -1.8,
+    2.5,
+    4.1,
+    0,
+    -3.3,
   ]);
+  assertArrayAlmostEqual(call(measurements, "toFloat32ArrayView"), [
+    2.2,
+    -1.8,
+    2.5,
+    4.1,
+    0,
+    -3.3,
+  ]);
+  const measurementRows = call(measurements, "toArrayView").map((row) =>
+    Array.from(row)
+  );
+  assertArrayAlmostEqual(measurementRows[0], [2.2, -1.8, 2.5]);
+  assertArrayAlmostEqual(measurementRows[1], [4.1, 0, -3.3]);
   assert.deepEqual(call(callStatic("from", 2, 2, [1, 2, 3, 4]), "toArray"), [
     [1, 2],
     [3, 4],
   ]);
-  assert.equal(call(callStatic("from", 2, 2, [1, 2, 3, 4]), "toString"), "1\t2\n3\t4");
+  assert.equal(
+    call(callStatic("from", 2, 2, [1, 2, 3, 4]), "toString"),
+    "1\t2\n3\t4",
+  );
 
   const zeros = callStatic("zeros", 2, 3);
   const ones = callStatic("ones", 2, 3);
   const identity = callStatic("identity", 2);
   const diagonal = callStatic("diagonal", [2, 3]);
-  const diagonalFromMatrix = callStatic("diagonal", callStatic("from", 1, 3, [2, 3, 4]));
+  const diagonalFromMatrix = callStatic(
+    "diagonal",
+    callStatic("from", 1, 3, [2, 3, 4]),
+  );
   let seed = 0;
   const random = callStatic("random", 2, 2, () => {
     seed++;
@@ -178,29 +206,77 @@ test("API use cases perform real calculations across every Matrix method", () =>
   assertMatrixAlmostEqual(ones, 2, 3, [1, 1, 1, 1, 1, 1]);
   assertMatrixAlmostEqual(identity, 2, 2, [1, 0, 0, 1]);
   assertMatrixAlmostEqual(diagonal, 2, 2, [2, 0, 0, 3]);
-  assertMatrixAlmostEqual(diagonalFromMatrix, 3, 3, [2, 0, 0, 0, 3, 0, 0, 0, 4]);
+  assertMatrixAlmostEqual(diagonalFromMatrix, 3, 3, [
+    2,
+    0,
+    0,
+    0,
+    3,
+    0,
+    0,
+    0,
+    4,
+  ]);
   assertMatrixAlmostEqual(random, 2, 2, [0.1, 0.2, 0.3, 0.4]);
 
   const a = callStatic("from", 2, 3, [1, 2, 3, 4, 5, 6]);
   const b = callStatic("from", 2, 3, [6, 5, 4, 3, 2, 1]);
   assertMatrixAlmostEqual(call(a, "add", b), 2, 3, [7, 7, 7, 7, 7, 7]);
   assertMatrixAlmostEqual(call(a, "add", 1), 2, 3, [2, 3, 4, 5, 6, 7]);
-  assertMatrixAlmostEqual(call(a, "addScalar", -0.5), 2, 3, [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]);
+  assertMatrixAlmostEqual(call(a, "addScalar", -0.5), 2, 3, [
+    0.5,
+    1.5,
+    2.5,
+    3.5,
+    4.5,
+    5.5,
+  ]);
   assertMatrixAlmostEqual(call(a, "subtract", b), 2, 3, [-5, -3, -1, 1, 3, 5]);
   assertMatrixAlmostEqual(call(a, "subtract", 2), 2, 3, [-1, 0, 1, 2, 3, 4]);
   assertMatrixAlmostEqual(call(a, "scale", 2), 2, 3, [2, 4, 6, 8, 10, 12]);
-  assertMatrixAlmostEqual(call(a, "multiply", callStatic("from", 1, 3, [2, 3, 4])), 2, 3, [2, 6, 12, 8, 15, 24]);
+  assertMatrixAlmostEqual(
+    call(a, "multiply", callStatic("from", 1, 3, [2, 3, 4])),
+    2,
+    3,
+    [2, 6, 12, 8, 15, 24],
+  );
   assertMatrixAlmostEqual(call(a, "multiply", 2), 2, 3, [2, 4, 6, 8, 10, 12]);
-  assertMatrixAlmostEqual(call(a, "divide", callStatic("from", 2, 3, [1, 2, 3, 4, 5, 6])), 2, 3, [1, 1, 1, 1, 1, 1]);
+  assertMatrixAlmostEqual(
+    call(a, "divide", callStatic("from", 2, 3, [1, 2, 3, 4, 5, 6])),
+    2,
+    3,
+    [1, 1, 1, 1, 1, 1],
+  );
   assertMatrixAlmostEqual(call(a, "divide", 2), 2, 3, [0.5, 1, 1.5, 2, 2.5, 3]);
   assertMatrixAlmostEqual(call(a, "hadamard", b), 2, 3, [6, 10, 12, 12, 10, 6]);
-  assertMatrixAlmostEqual(call(a, "elementMultiply", b), 2, 3, [6, 10, 12, 12, 10, 6]);
+  assertMatrixAlmostEqual(call(a, "elementMultiply", b), 2, 3, [
+    6,
+    10,
+    12,
+    12,
+    10,
+    6,
+  ]);
   assertMatrixAlmostEqual(call(a, "min", b), 2, 3, [1, 2, 3, 3, 2, 1]);
   assertMatrixAlmostEqual(call(a, "max", b), 2, 3, [6, 5, 4, 4, 5, 6]);
 
   const transform = callStatic("from", 2, 3, [-1.2, -0.2, 0.2, 1.2, 2.7, 3.1]);
-  assertMatrixAlmostEqual(call(transform, "negate"), 2, 3, [1.2, 0.2, -0.2, -1.2, -2.7, -3.1]);
-  assertMatrixAlmostEqual(call(transform, "abs"), 2, 3, [1.2, 0.2, 0.2, 1.2, 2.7, 3.1]);
+  assertMatrixAlmostEqual(call(transform, "negate"), 2, 3, [
+    1.2,
+    0.2,
+    -0.2,
+    -1.2,
+    -2.7,
+    -3.1,
+  ]);
+  assertMatrixAlmostEqual(call(transform, "abs"), 2, 3, [
+    1.2,
+    0.2,
+    0.2,
+    1.2,
+    2.7,
+    3.1,
+  ]);
   assertMatrixAlmostEqual(call(call(transform, "abs"), "sqrt"), 2, 3, [
     Math.sqrt(1.2),
     Math.sqrt(0.2),
@@ -211,20 +287,51 @@ test("API use cases perform real calculations across every Matrix method", () =>
   ]);
   assertMatrixAlmostEqual(call(transform, "floor"), 2, 3, [-2, -1, 0, 1, 2, 3]);
   assertMatrixAlmostEqual(call(transform, "ceil"), 2, 3, [-1, 0, 1, 2, 3, 4]);
-  assertMatrixAlmostEqual(call(transform, "clamp", -0.5, 2), 2, 3, [-0.5, -0.2, 0.2, 1.2, 2, 2]);
-  assertMatrixAlmostEqual(call(transform, "map", (value, row, col) => value + row * 10 + col), 2, 3, [-1.2, 0.8, 2.2, 11.2, 13.7, 15.1]);
+  assertMatrixAlmostEqual(call(transform, "clamp", -0.5, 2), 2, 3, [
+    -0.5,
+    -0.2,
+    0.2,
+    1.2,
+    2,
+    2,
+  ]);
+  assertMatrixAlmostEqual(
+    call(transform, "map", (value, row, col) => value + row * 10 + col),
+    2,
+    3,
+    [-1.2, 0.8, 2.2, 11.2, 13.7, 15.1],
+  );
 
   const left = callStatic("from", 2, 3, [1, 2, 3, 4, 5, 6]);
   const right = callStatic("from", 3, 2, [7, 8, 9, 10, 11, 12]);
   const post = callStatic("from", 2, 2, [1, 2, 3, 4]);
   assertMatrixAlmostEqual(call(left, "transpose"), 3, 2, [1, 4, 2, 5, 3, 6]);
-  assertMatrixAlmostEqual(call(left, "matmul", right), 2, 2, [58, 64, 139, 154]);
-  assertMatrixAlmostEqual(callStatic("matmulChain", left, right, post), 2, 2, [250, 372, 601, 894]);
+  assertMatrixAlmostEqual(call(left, "matmul", right), 2, 2, [
+    58,
+    64,
+    139,
+    154,
+  ]);
+  assertMatrixAlmostEqual(callStatic("matmulChain", left, right, post), 2, 2, [
+    250,
+    372,
+    601,
+    894,
+  ]);
   assertArrayAlmostEqual(call(left, "matvec", [1, 0, -1]), [-2, -2]);
   assertAlmostEqual(call(left, "dot", left), 91);
-  assertMatrixAlmostEqual(callStatic("outer", [1, 2], [3, 4]), 2, 2, [3, 4, 6, 8]);
+  assertMatrixAlmostEqual(callStatic("outer", [1, 2], [3, 4]), 2, 2, [
+    3,
+    4,
+    6,
+    8,
+  ]);
   assertMatrixAlmostEqual(
-    callStatic("outer", callStatic("from", 2, 1, [2, 3]), callStatic("from", 1, 2, [4, 5])),
+    callStatic(
+      "outer",
+      callStatic("from", 2, 1, [2, 3]),
+      callStatic("from", 1, 2, [4, 5]),
+    ),
     2,
     2,
     [8, 10, 12, 15],
@@ -244,14 +351,22 @@ test("API use cases perform real calculations across every Matrix method", () =>
   assertMatrixAlmostEqual(inverse, 2, 2, [0.6, -0.7, -0.2, 0.4]);
   assertMatrixAlmostEqual(call(system, "matmul", inverse), 2, 2, [1, 0, 0, 1]);
   assertMatrixAlmostEqual(
-    call(callStatic("from", 2, 2, [3, -1, 5, 2]), "matmul", call(system, "inverse")),
+    call(
+      callStatic("from", 2, 2, [3, -1, 5, 2]),
+      "matmul",
+      call(system, "inverse"),
+    ),
     2,
     2,
     [2, -2.5, 2.6, -2.7],
     1e-5,
   );
   assertMatrixAlmostEqual(
-    call(call(system, "inverse"), "matmul", callStatic("from", 2, 2, [3, -1, 5, 2])),
+    call(
+      call(system, "inverse"),
+      "matmul",
+      callStatic("from", 2, 2, [3, -1, 5, 2]),
+    ),
     2,
     2,
     [-1.7, -2, 1.4, 1],
@@ -259,10 +374,21 @@ test("API use cases perform real calculations across every Matrix method", () =>
   );
   assertMatrixAlmostEqual(call(system, "solve", [1, 0]), 2, 1, [0.6, -0.2]);
   assert.equal(call(system, "rank"), 2);
-  assert.equal(call(call(system, "matmul", call(system, "inverse")), "equalsApprox", identity, 1e-5), true);
+  assert.equal(
+    call(
+      call(system, "matmul", call(system, "inverse")),
+      "equalsApprox",
+      identity,
+      1e-5,
+    ),
+    true,
+  );
 
   const design = callStatic("from", 3, 2, [1, 1, 1, 2, 1, 3]);
-  assertMatrixAlmostEqual(call(design, "leastSquares", [1, 2, 2]), 2, 1, [2 / 3, 0.5], 1e-5);
+  assertMatrixAlmostEqual(call(design, "leastSquares", [1, 2, 2]), 2, 1, [
+    2 / 3,
+    0.5,
+  ], 1e-5);
 
   const disposable = callStatic("ones", 1, 1);
   call(disposable, "dispose");
@@ -282,7 +408,12 @@ test("algebraic traps reject invalid commutative and transpose rewrites", () => 
   assert.equal(ab.equalsApprox(ba), false);
 
   assertMatrixValues(ab.transpose(), 2, 2, [-4, -8, 7, 15]);
-  assertMatrixValues(b.transpose().matmul(a.transpose()), 2, 2, [-4, -8, 7, 15]);
+  assertMatrixValues(b.transpose().matmul(a.transpose()), 2, 2, [
+    -4,
+    -8,
+    7,
+    15,
+  ]);
   assert.equal(
     ab.transpose().equalsApprox(a.transpose().matmul(b.transpose())),
     false,
@@ -295,10 +426,23 @@ test("algebraic traps keep diagonal side and broadcast axis distinct", () => {
 
   assertMatrixValues(diagonal.matmul(matrix), 2, 2, [2, 4, 9, 12]);
   assertMatrixValues(matrix.matmul(diagonal), 2, 2, [2, 6, 6, 12]);
-  assert.equal(diagonal.matmul(matrix).equalsApprox(matrix.matmul(diagonal)), false);
+  assert.equal(
+    diagonal.matmul(matrix).equalsApprox(matrix.matmul(diagonal)),
+    false,
+  );
 
-  assertMatrixValues(matrix.add(Matrix.from(1, 2, [10, 20])), 2, 2, [11, 22, 13, 24]);
-  assertMatrixValues(matrix.add(Matrix.from(2, 1, [10, 20])), 2, 2, [11, 12, 23, 24]);
+  assertMatrixValues(matrix.add(Matrix.from(1, 2, [10, 20])), 2, 2, [
+    11,
+    22,
+    13,
+    24,
+  ]);
+  assertMatrixValues(matrix.add(Matrix.from(2, 1, [10, 20])), 2, 2, [
+    11,
+    12,
+    23,
+    24,
+  ]);
   assert.equal(
     matrix.add(Matrix.from(1, 2, [10, 20])).equalsApprox(
       matrix.add(Matrix.from(2, 1, [10, 20])),

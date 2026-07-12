@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "strict": false
+  },
+  "tasks": {
+    "build": "deno run -A npm:typescript@5.9.3/lib/tsc.js -p tsconfig.json",
+    "fmt": "deno fmt src test package.json tsconfig.json deno.json",
+    "lint": "deno lint src/*.ts test/*.ts",
+    "test": "deno task build && node --test test/gpu.test.ts"
+  }
+}

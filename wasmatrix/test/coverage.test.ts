@@ -199,7 +199,10 @@ test("coverage: singular, structural and cached linear algebra paths", () => {
   );
 
   assert.throws(() => Matrix.diagonal([1, 0]).inverse().toArray(), /singular/);
-  assert.throws(() => Matrix.diagonal([1, 0]).solve([1, 2]).toArray(), /singular/);
+  assert.throws(
+    () => Matrix.diagonal([1, 0]).solve([1, 2]).toArray(),
+    /singular/,
+  );
   assert.throws(
     () => Matrix.from(2, 2, [1, 2, 2, 4]).inverse().toArray(),
     /singular/,
@@ -398,4 +401,132 @@ test("coverage: array overloads and matrix chain one-item view", () => {
   );
   almostEqual(a.dot(Matrix.from(2, 2, [1, 1, 1, 1])), 10);
   almostArray(a.matvec(Matrix.from(2, 1, [1, -1])), [-1, -1]);
+});
+
+test("coverage: adapter edge branches and cache reuse", () => {
+  const listenerCalls = [];
+  const listenersKey = Symbol.for("wasmatrix.wasmCallListeners");
+  const previousListeners = globalThis[listenersKey];
+  globalThis[listenersKey] = new Set([(name) => listenerCalls.push(name)]);
+  try {
+    assert.equal(Matrix.from(1, 1, [2]).sum(), 2);
+    assert.equal(listenerCalls.includes("sum"), true);
+  } finally {
+    if (previousListeners === undefined) {
+      delete globalThis[listenersKey];
+    } else {
+      globalThis[listenersKey] = previousListeners;
+    }
+  }
+
+  const runtime = createRuntime();
+  assert.throws(() => runtime.call("missingExport"), /not callable/);
+
+  const local = Matrix.from(2, 2, [1, 2, 3, 4]);
+  assert.equal(local.at(0, 1), 2);
+  local.set(0, 1, 5);
+  almostArray(local.row(0), [1, 5]);
+  assert.throws(() => local.rowView(2), /row index/);
+  almostArray(local.column(1), [5, 4]);
+  assert.deepEqual(local.reshape(1, 4).toArray(), [[1, 5, 3, 4]]);
+  Matrix.ones(1, 1).set(0, 0, 3);
+  Matrix.identity(1).set(0, 0, 4);
+
+  Matrix.from(2, 2, [3, 1, 1, 2]).solve([1, 2]).dispose();
+  Matrix.from(3, 2, [1, 0, 0, 1, 1, 1]).leastSquares([1, 2, 3]).dispose();
+  Matrix.outer([1, 2], [3, 4]).dispose();
+  Matrix.diagonal([1, 2]).dispose();
+
+  const isolated = new Matrix(2, 1, [1, 2], { runtime: createRuntime() });
+  assert.throws(
+    () => Matrix.identity(2).matvec(isolated),
+    /different WASM runtime/,
+  );
+
+  const transposed = Matrix.from(2, 2, [1, 2, 3, 4]).transpose();
+  assert.deepEqual(transposed.transpose().toArray(), [
+    [1, 2],
+    [3, 4],
+  ]);
+  assert.deepEqual(
+    Matrix.identity(2).matmul(Matrix.from(2, 2, [1, 2, 3, 4])).transpose()
+      .toArray(),
+    [
+      [1, 3],
+      [2, 4],
+    ],
+  );
+
+  assert.equal(Matrix.diagonal([2, 3]).determinant(), 6);
+  assert.deepEqual(
+    Matrix.diagonal([2, 3]).matmul(Matrix.diagonal([4, 5])).toArray(),
+    [
+      [8, 0],
+      [0, 15],
+    ],
+  );
+  assert.equal(
+    Matrix.from(2, 2, [1, 2, 3, 4]).matmul(
+      Matrix.from(2, 2, [5, 6, 7, 8]),
+    ).trace(),
+    69,
+  );
+  const spdSource = Matrix.from(4, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1]);
+  const spd3 = spdSource.transpose().matmul(spdSource);
+  assert.equal(spd3.determinant(), 4);
+  almostEqual(spd3.logDet(), Math.log(4));
+  configure({ fastMath: true });
+  try {
+    const left = Matrix.from(2, 2, [4, 7, 2, 6]);
+    const right = Matrix.from(2, 2, [3, 1, 1, 2]);
+    almostEqual(
+      left.matmul(right).determinant(),
+      left.determinant() * right.determinant(),
+    );
+  } finally {
+    configure({ fastMath: false });
+  }
+
+  assert.equal(
+    Matrix.from(1, 2, [1, 2]).equalsApprox(Matrix.from(1, 2, [1, 2])),
+    true,
+  );
+  assert.equal(
+    Matrix.from(1, 2, [1, 2]).equalsApprox(Matrix.from(1, 2, [1, 3])),
+    false,
+  );
+  const materializedLeft = Matrix.from(1, 2, [1, 2]).scale(1);
+  materializedLeft.toArray();
+  assert.equal(materializedLeft.equalsApprox(Matrix.from(1, 2, [1, 3])), false);
+  const materializedRight = Matrix.from(1, 2, [1, 3]).scale(1);
+  materializedRight.toArray();
+  assert.equal(
+    Matrix.from(1, 2, [1, 2]).equalsApprox(materializedRight),
+    false,
+  );
+
+  const product = Matrix.from(2, 2, [1, 2, 3, 4]).matmul(
+    Matrix.from(2, 2, [5, 6, 7, 8]),
+  );
+  assert.deepEqual(product.add(product).toArray(), [
+    [38, 44],
+    [86, 100],
+  ]);
+  assert.deepEqual(product.subtract(product).toArray(), [
+    [0, 0],
+    [0, 0],
+  ]);
+
+  assert.deepEqual(Matrix.identity(2).addScalar(1).toArray(), [
+    [2, 1],
+    [1, 2],
+  ]);
+  assert.deepEqual(Matrix.ones(2, 2).addScalar(1).toArray(), [
+    [2, 2],
+    [2, 2],
+  ]);
+
+  const largeBase = Matrix.ones(129, 129);
+  largeBase.scale(2).toFloat32Array();
+  almostEqual(largeBase.scale(2).at(0, 0), 2);
 });
