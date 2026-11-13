@@ -34,12 +34,20 @@ const EW_CLAMP = 15;
 const OPERAND_FULL = 0;
 const OPERAND_ROW = 1;
 const OPERAND_COLUMN = 2;
+const OPERAND_SCALAR = 3;
+
+const DAG_TRACK_HEADER = -1;
+const DAG_REF_LEAF = 0;
+const DAG_REF_TRACK = 1;
+const DAG_ENTRY_I32_SLOTS = 5;
 
 const MATMUL_NN = "NN";
 const MATMUL_TN = "TN";
 const MATMUL_NT = "NT";
 const MATMUL_TT = "TT";
 const SMALL_LINALG_DIRECT_MAX_SIZE = 2;
+const FACTOR_CACHE_SOLVE_MIN_SIZE = 24;
+const PACKED_MATMUL_MIN_COST = 262_144;
 const MIN_BUFFER_CACHE_BYTES = 64 * 1024;
 const BATCH_INSTRUCTION_I32_SLOTS = 8;
 const BATCH_OP_MATMUL = 2;
@@ -1073,18 +1081,30 @@ export class Matrix {
   diagonal() {
     this.#assertAlive();
     const cached = this.#diagonalCache;
-    if (cached != null && cached.version === this.#version) {
+    const dependencyKey = this.#materializationCacheKey() ??
+      this.#identityKey();
+    if (
+      cached != null && cached.version === this.#version &&
+      cached.dependencyKey === dependencyKey
+    ) {
       return new Float32Array(cached.value);
     }
 
     const length = Math.min(this.rows, this.cols);
+    const diagonalSource = this.#diagonalVectorSource();
+    if (diagonalSource != null) {
+      const value = diagonalSource.toFloat32Array();
+      this.#diagonalCache = { version: this.#version, dependencyKey, value };
+      return new Float32Array(value);
+    }
+
     const local = this.#localDataSnapshot();
     if (local != null) {
       const value = new Float32Array(length);
       for (let i = 0; i < length; i++) {
         value[i] = local[i * this.cols + i];
       }
-      this.#diagonalCache = { version: this.#version, value };
+      this.#diagonalCache = { version: this.#version, dependencyKey, value };
       return new Float32Array(value);
     }
 
@@ -1098,7 +1118,7 @@ export class Matrix {
         this.cols,
       );
       const value = this.#runtime.read(ptr, length);
-      this.#diagonalCache = { version: this.#version, value };
+      this.#diagonalCache = { version: this.#version, dependencyKey, value };
       return new Float32Array(value);
     } finally {
       this.#runtime.free(ptr);
@@ -1331,6 +1351,17 @@ export class Matrix {
     if (this.#structure === "zero" || other.#structure === "zero") {
       return Matrix.zeros(this.rows, other.cols);
     }
+    const leftDiagonal = this.#diagonalVectorSource();
+    const rightDiagonal = other.#diagonalVectorSource();
+    if (leftDiagonal != null && rightDiagonal != null) {
+      const productVector = leftDiagonal.hadamard(rightDiagonal);
+      return new Matrix(this.rows, this.cols, null, {
+        runtime: this.#runtime,
+        diagonalOf: productVector,
+        diagonalTemporary: true,
+        structure: "diagonal",
+      });
+    }
     const scalarRewrite = this.#matmulScalarRewrite(other);
     if (scalarRewrite != null) return scalarRewrite;
 
@@ -1419,6 +1450,10 @@ export class Matrix {
 
   sum() {
     this.#assertAlive();
+    const diagonalSource = this.#diagonalVectorSource();
+    if (diagonalSource != null) {
+      return this.#cachedReduction("sum", () => diagonalSource.sum());
+    }
     return this.#cachedReduction(
       "sum",
       () => this.#runtime.call("sum", this.#materializedPtr(), this.length),
@@ -1427,6 +1462,13 @@ export class Matrix {
 
   minValue() {
     this.#assertAlive();
+    const diagonalSource = this.#diagonalVectorSource();
+    if (diagonalSource != null) {
+      return this.#cachedReduction("min", () => {
+        const value = diagonalSource.minValue();
+        return this.rows === 1 ? value : Math.min(0, value);
+      });
+    }
     return this.#cachedReduction(
       "min",
       () =>
@@ -1436,6 +1478,13 @@ export class Matrix {
 
   maxValue() {
     this.#assertAlive();
+    const diagonalSource = this.#diagonalVectorSource();
+    if (diagonalSource != null) {
+      return this.#cachedReduction("max", () => {
+        const value = diagonalSource.maxValue();
+        return this.rows === 1 ? value : Math.max(0, value);
+      });
+    }
     return this.#cachedReduction(
       "max",
       () =>
@@ -1445,6 +1494,10 @@ export class Matrix {
 
   trace() {
     this.#assertAlive();
+    const diagonalSource = this.#diagonalVectorSource();
+    if (diagonalSource != null) {
+      return this.#cachedReduction("trace", () => diagonalSource.sum());
+    }
     if (
       this.#ptr === 0 &&
       this.#matmulOf != null &&
@@ -1483,6 +1536,13 @@ export class Matrix {
 
   frobeniusNorm() {
     this.#assertAlive();
+    const diagonalSource = this.#diagonalVectorSource();
+    if (diagonalSource != null) {
+      return this.#cachedReduction(
+        "frobenius",
+        () => diagonalSource.frobeniusNorm(),
+      );
+    }
     return this.#cachedReduction(
       "frobenius",
       () =>
@@ -1503,11 +1563,18 @@ export class Matrix {
     if (this.#structure === "identity") return 1;
     if (this.#structure === "zero") return 0;
     if (this.#structure === "diagonal") {
-      value = this.#runtime.call(
-        "diagonalProduct",
-        this.#materializedPtr(),
-        this.rows,
-      );
+      const diagonalSource = this.#diagonalVectorSource();
+      value = diagonalSource == null
+        ? this.#runtime.call(
+          "diagonalProduct",
+          this.#materializedPtr(),
+          this.rows,
+        )
+        : this.#runtime.call(
+          "diagonalVectorProduct",
+          diagonalSource.#materializedPtr(),
+          this.rows,
+        );
       this.#setCachedReduction("determinant", value);
       return value;
     }
@@ -1567,14 +1634,23 @@ export class Matrix {
     if (this.#structure === "identity") {
       value = 0;
     } else if (this.#structure === "diagonal") {
-      const diagonal = this.diagonal();
-      value = 0;
-      for (const item of diagonal) {
-        if (item <= 0) {
-          value = Number.NaN;
-          break;
+      const diagonalSource = this.#diagonalVectorSource();
+      if (diagonalSource != null) {
+        value = this.#runtime.call(
+          "diagonalVectorLogDet",
+          diagonalSource.#materializedPtr(),
+          this.rows,
+        );
+      } else {
+        const diagonal = this.diagonal();
+        value = 0;
+        for (const item of diagonal) {
+          if (item <= 0) {
+            value = Number.NaN;
+            break;
+          }
+          value += Math.log(item);
         }
-        value += Math.log(item);
       }
     } else {
       const cholesky = this.#choleskyFactor();
@@ -2490,6 +2566,11 @@ export class Matrix {
           nodes.push(this);
           return true;
         }
+
+        const cost = left.rows * left.cols * right.cols;
+        if (cost >= PACKED_MATMUL_MIN_COST) {
+          return false;
+        }
       }
       if (!left.#collectBatchMaterialization(nodes, seen)) return false;
       if (!right.#collectBatchMaterialization(nodes, seen)) return false;
@@ -2509,6 +2590,12 @@ export class Matrix {
         );
       }
       /* c8 ignore stop */
+      if (
+        left.#structure === "diagonal" ||
+        left.rows >= FACTOR_CACHE_SOLVE_MIN_SIZE
+      ) {
+        return false;
+      }
       if (!left.#collectBatchMaterialization(nodes, seen)) return false;
       if (!right.#collectBatchMaterialization(nodes, seen)) return false;
       nodes.push(this);
@@ -2686,6 +2773,15 @@ export class Matrix {
     if (!this.#collectBatchMaterialization(nodes, new Set())) return 0;
     if (nodes.length === 0) return 0;
 
+    // Persist literal dependencies once instead of copying them into every
+    // result slab. This also prevents the result from retaining input-sized
+    // regions after batch execution has finished.
+    for (const node of nodes) {
+      if (node !== this && !node.#ptr && node.#hasLocalBacking()) {
+        node.#materializedPtr();
+      }
+    }
+
     const offsets = new Map();
     offsets.set(this, 0);
     let totalLength = this.length;
@@ -2751,6 +2847,11 @@ export class Matrix {
   }
 
   #materializeExpression(ptr) {
+    if (this.#hasNestedElementwiseDag()) {
+      this.#materializeExpressionDag(ptr);
+      return;
+    }
+
     const { base, ops } = this.#expr;
     base.#assertAlive();
     this.#assertSameRuntime(base);
@@ -2790,33 +2891,174 @@ export class Matrix {
       }
     }
 
-    const opcodesPtr = this.#runtime.writeI32(opcodes);
-    const scalarAPtr = this.#runtime.write(scalarA);
-    const scalarBPtr = this.#runtime.write(scalarB);
-    const operandPtrsPtr = this.#runtime.writeI32(operandPtrs);
-    const operandModesPtr = this.#runtime.writeI32(operandModes);
+    const fieldLength = ops.length;
+    const metadataPtr = this.#runtime.i32Scratch(fieldLength * 5);
+    const opcodesPtr = metadataPtr;
+    const scalarAPtr = opcodesPtr + (fieldLength << 2);
+    const scalarBPtr = scalarAPtr + (fieldLength << 2);
+    const operandPtrsPtr = scalarBPtr + (fieldLength << 2);
+    const operandModesPtr = operandPtrsPtr + (fieldLength << 2);
 
-    try {
-      this.#runtime.call(
-        "fusedElementwise",
-        basePtr,
-        ptr,
-        this.rows,
-        this.cols,
-        opcodesPtr,
-        scalarAPtr,
-        scalarBPtr,
-        operandPtrsPtr,
-        operandModesPtr,
-        ops.length,
-      );
-    } finally {
-      this.#runtime.free(opcodesPtr);
-      this.#runtime.free(scalarAPtr);
-      this.#runtime.free(scalarBPtr);
-      this.#runtime.free(operandPtrsPtr);
-      this.#runtime.free(operandModesPtr);
+    this.#runtime.i32.set(opcodes, opcodesPtr >>> 2);
+    this.#runtime.f32.set(scalarA, scalarAPtr >>> 2);
+    this.#runtime.f32.set(scalarB, scalarBPtr >>> 2);
+    this.#runtime.i32.set(operandPtrs, operandPtrsPtr >>> 2);
+    this.#runtime.i32.set(operandModes, operandModesPtr >>> 2);
+
+    this.#runtime.call(
+      "fusedElementwise",
+      basePtr,
+      ptr,
+      this.rows,
+      this.cols,
+      opcodesPtr,
+      scalarAPtr,
+      scalarBPtr,
+      operandPtrsPtr,
+      operandModesPtr,
+      ops.length,
+    );
+  }
+
+  #hasNestedElementwiseDag() {
+    if (this.#expr == null) return false;
+    if (this.#expr.base.#ptr === 0 && this.#expr.base.#base != null) {
+      return true;
     }
+    return this.#expr.ops.some((op) =>
+      op.other != null && op.other.#ptr === 0 &&
+      (op.other.#expr != null || op.other.#base != null)
+    );
+  }
+
+  #dagOperandMode(matrix) {
+    if (matrix.rows === this.rows && matrix.cols === this.cols) {
+      return OPERAND_FULL;
+    }
+    if (matrix.rows === 1 && matrix.cols === 1) return OPERAND_SCALAR;
+    if (matrix.rows === 1 && matrix.cols === this.cols) return OPERAND_ROW;
+    if (matrix.rows === this.rows && matrix.cols === 1) return OPERAND_COLUMN;
+    throw new RangeError(
+      `DAG operand ${matrix.rows}x${matrix.cols} cannot broadcast to ${this.rows}x${this.cols}`,
+    );
+  }
+
+  #materializeExpressionDag(ptr) {
+    const tracks = [];
+    const trackIndexes = new Map();
+
+    const leafReference = (matrix) => ({
+      kind: DAG_REF_LEAF,
+      value: matrix.#materializedPtr(),
+      mode: this.#dagOperandMode(matrix),
+    });
+
+    const reference = (matrix) => {
+      matrix.#assertAlive();
+      this.#assertSameRuntime(matrix);
+      if (
+        matrix.#ptr === 0 &&
+        (matrix.#expr != null || matrix.#base != null)
+      ) {
+        return {
+          kind: DAG_REF_TRACK,
+          value: compileTrack(matrix),
+          mode: OPERAND_FULL,
+        };
+      }
+      return leafReference(matrix);
+    };
+
+    const compileTrack = (matrix) => {
+      const cached = trackIndexes.get(matrix);
+      if (cached != null) return cached;
+
+      let base;
+      const ops = [];
+      if (matrix.#expr != null) {
+        base = reference(matrix.#expr.base);
+        for (const op of matrix.#expr.ops) {
+          if (op.other != null) {
+            const other = reference(op.other);
+            ops.push([
+              op.code,
+              other.kind,
+              other.value,
+              other.mode,
+              0,
+            ]);
+          } else {
+            ops.push([
+              op.code,
+              0,
+              0,
+              f32Bits(op.scalarA ?? 0),
+              f32Bits(op.scalarB ?? 0),
+            ]);
+          }
+        }
+      } else {
+        base = reference(matrix.#base);
+        if (matrix.#affineScale !== 1) {
+          ops.push([
+            EW_MULTIPLY_SCALAR,
+            0,
+            0,
+            f32Bits(matrix.#affineScale),
+            0,
+          ]);
+        }
+        if (matrix.#affineBias !== 0) {
+          ops.push([
+            EW_ADD_SCALAR,
+            0,
+            0,
+            f32Bits(matrix.#affineBias),
+            0,
+          ]);
+        }
+      }
+
+      const index = tracks.length;
+      tracks.push({ base, ops });
+      trackIndexes.set(matrix, index);
+      return index;
+    };
+
+    const resultTrack = compileTrack(this);
+    const entries = [];
+    for (const track of tracks) {
+      entries.push([
+        DAG_TRACK_HEADER,
+        track.base.kind,
+        track.base.value,
+        track.base.mode,
+        track.ops.length,
+      ]);
+      entries.push(...track.ops);
+    }
+    const program = new Int32Array(entries.length * DAG_ENTRY_I32_SLOTS);
+    for (let index = 0; index < entries.length; index++) {
+      program.set(entries[index], index * DAG_ENTRY_I32_SLOTS);
+    }
+
+    const trackResultI32Slots = tracks.length * 4;
+    const scratchPtr = this.#runtime.i32Scratch(
+      program.length + trackResultI32Slots,
+    );
+    this.#runtime.i32.set(program, scratchPtr >>> 2);
+    const trackResultsPtr = scratchPtr + (program.length << 2);
+
+    this.#runtime.call(
+      "fusedElementwiseDag",
+      ptr,
+      this.rows,
+      this.cols,
+      scratchPtr,
+      tracks.length,
+      trackResultsPtr,
+      resultTrack,
+    );
   }
 
   /* c8 ignore start */
@@ -2873,7 +3115,7 @@ export class Matrix {
       right.#rightMatmulUses++;
       if (
         (right.#packedCache != null || right.#rightMatmulUses > 1) &&
-        cost >= 262_144
+        cost >= PACKED_MATMUL_MIN_COST
       ) {
         this.#runtime.call(
           "matmulPackedB",
@@ -2914,14 +3156,24 @@ export class Matrix {
 
     try {
       if (left.#structure === "diagonal") {
-        const ok = this.#runtime.call(
-          "solveDiagonal",
-          left.#materializedPtr(),
-          right.#materializedPtr(),
-          ptr,
-          left.rows,
-          right.cols,
-        );
+        const diagonalSource = left.#diagonalVectorSource();
+        const ok = diagonalSource == null
+          ? this.#runtime.call(
+            "solveDiagonal",
+            left.#materializedPtr(),
+            right.#materializedPtr(),
+            ptr,
+            left.rows,
+            right.cols,
+          )
+          : this.#runtime.call(
+            "solveDiagonalVector",
+            diagonalSource.#materializedPtr(),
+            right.#materializedPtr(),
+            ptr,
+            left.rows,
+            right.cols,
+          );
         if (ok !== 1) {
           throw new RangeError("matrix is singular");
         }

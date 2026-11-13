@@ -530,3 +530,113 @@ test("coverage: adapter edge branches and cache reuse", () => {
   largeBase.scale(2).toFloat32Array();
   almostEqual(largeBase.scale(2).at(0, 0), 2);
 });
+
+test("optimizer lowering reaches compact specialized kernels", () => {
+  const listenerCalls = [];
+  const listenersKey = Symbol.for("wasmatrix.wasmCallListeners");
+  const previousListeners = globalThis[listenersKey];
+  globalThis[listenersKey] = new Set([(name) => listenerCalls.push(name)]);
+
+  const count = (name) => listenerCalls.filter((item) => item === name).length;
+
+  try {
+    const diagonal = Matrix.diagonal([2, 4, 8, 16]);
+    const rhs = Matrix.ones(4, 2);
+    almostArray(diagonal.solve(rhs).toFlatArray(), [
+      0.5,
+      0.5,
+      0.25,
+      0.25,
+      0.125,
+      0.125,
+      0.0625,
+      0.0625,
+    ]);
+    assert.equal(diagonal.determinant(), 1024);
+    assert.equal(count("solveDiagonalVector"), 1);
+    assert.equal(count("diagonalVectorProduct"), 1);
+
+    const diagonalValues = Matrix.from(2, 1, [3, 5]);
+    const dependentDiagonal = Matrix.diagonal(diagonalValues);
+    almostArray(dependentDiagonal.diagonal(), [3, 5]);
+    diagonalValues.set(0, 0, 7);
+    almostArray(dependentDiagonal.diagonal(), [7, 5]);
+
+    listenerCalls.length = 0;
+    const size = 24;
+    const denseData = new Float32Array(size * size);
+    for (let row = 0; row < size; row++) {
+      for (let col = 0; col < size; col++) {
+        denseData[row * size + col] = row === col
+          ? 4
+          : ((row + col) % 5) * 0.001;
+      }
+    }
+    const dense = Matrix.from(size, size, denseData);
+    const denseRhs = Matrix.ones(size, 2);
+    dense.determinant();
+    dense.solve(denseRhs).sum();
+    dense.solve(denseRhs).sum();
+    assert.equal(count("luFactor"), 1);
+    assert.equal(count("luSolve"), 2);
+
+    listenerCalls.length = 0;
+    const packedSize = 64;
+    const packedRight = Matrix.from(
+      packedSize,
+      packedSize,
+      values(packedSize * packedSize, 11),
+    );
+    for (const seed of [13, 17, 19]) {
+      Matrix.from(
+        packedSize,
+        packedSize,
+        values(packedSize * packedSize, seed),
+      ).matmul(packedRight).sum();
+    }
+    assert.equal(count("packForMatmul"), 1);
+    assert.equal(count("matmulPackedB"), 2);
+
+    const left = Matrix.from(4, 4, values(16, 23));
+    const right = Matrix.from(4, 4, values(16, 29));
+    left.byteOffset;
+    right.byteOffset;
+    listenerCalls.length = 0;
+    left.add(right).abs().sqrt().sum();
+    assert.equal(count("allocI32"), 0);
+    assert.equal(count("fusedElementwise"), 1);
+
+    listenerCalls.length = 0;
+    const dagLeft = Matrix.from(2, 4, [1, 2, 3, 4, 5, 6, 7, 8]);
+    const dagRight = Matrix.from(2, 4, [8, 7, 6, 5, 4, 3, 2, 1]);
+    const dagRow = Matrix.from(1, 4, [1, 2, 3, 4]);
+    const dagColumn = Matrix.from(2, 1, [2, 3]);
+    const dagScalar = Matrix.from(1, 1, [0.5]);
+    const sharedBranch = dagRight.abs().add(dagRow.add(dagScalar).scale(2));
+    const dagResult = dagLeft
+      .add(sharedBranch)
+      .multiply(sharedBranch.add(dagColumn))
+      .sqrt();
+    const actual = dagResult.toFlatArray();
+    const expected = [];
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 4; col++) {
+        const index = row * 4 + col;
+        const branch = Math.abs(dagRight.at(row, col)) +
+          (dagRow.at(0, col) + 0.5) * 2;
+        expected.push(
+          Math.sqrt((dagLeft.at(row, col) + branch) * (branch + 2 + row)),
+        );
+      }
+    }
+    almostArray(actual, expected);
+    assert.equal(count("fusedElementwiseDag"), 1);
+    assert.equal(count("fusedElementwise"), 0);
+  } finally {
+    if (previousListeners === undefined) {
+      delete globalThis[listenersKey];
+    } else {
+      globalThis[listenersKey] = previousListeners;
+    }
+  }
+});

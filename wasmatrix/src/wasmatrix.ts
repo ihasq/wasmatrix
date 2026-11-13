@@ -17,6 +17,13 @@ const BATCH_OP_INVERT_DIAGONAL: i32 = 19;
 const BATCH_OP_AFFINE: i32 = 20;
 const BATCH_OP_SCALE_ROWS_BY_VECTOR: i32 = 21;
 const BATCH_OP_SCALE_COLS_BY_VECTOR: i32 = 22;
+const DAG_ENTRY_I32_SLOTS: i32 = 5;
+const DAG_TRACK_HEADER: i32 = -1;
+const DAG_REF_LEAF: i32 = 0;
+const DAG_REF_TRACK: i32 = 1;
+const DAG_OPERAND_ROW: i32 = 1;
+const DAG_OPERAND_COLUMN: i32 = 2;
+const DAG_OPERAND_SCALAR: i32 = 3;
 
 const SKIP_COEFF_MASK: i32 = 0xffff;
 const SKIP_DEAD_INPUT_SHIFT: i32 = 16;
@@ -55,6 +62,16 @@ function batchOffset(instructions: usize, instruction: i32, slot: i32): usize {
 
 function readBatchI32(instructions: usize, instruction: i32, slot: i32): i32 {
   return load<i32>(batchOffset(instructions, instruction, slot));
+}
+
+function readDagI32(program: usize, entry: i32, slot: i32): i32 {
+  return load<i32>(
+    program + <usize> ((entry * DAG_ENTRY_I32_SLOTS + slot) << 2),
+  );
+}
+
+function dagTrackOffset(track: i32): usize {
+  return <usize> track << 4;
 }
 
 function readI32(ptr: usize, index: i32): i32 {
@@ -785,12 +802,63 @@ function matmulF32(
 ): void {
   assert(rows >= 0 && shared >= 0 && cols >= 0);
   for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
+    let leftBase = row * shared;
+    let outBase = row * cols;
+    let col = 0;
+
+    for (; col + 15 < cols; col += 16) {
+      let acc0 = f32x4.splat(0.0);
+      let acc1 = f32x4.splat(0.0);
+      let acc2 = f32x4.splat(0.0);
+      let acc3 = f32x4.splat(0.0);
+      for (let k = 0; k < shared; k++) {
+        let scalar = f32x4.splat(readF32(left, leftBase + k));
+        let rightOffset = f32Offset(k * cols + col);
+        acc0 = f32x4.add(
+          acc0,
+          f32x4.mul(scalar, v128.load(right + rightOffset)),
+        );
+        acc1 = f32x4.add(
+          acc1,
+          f32x4.mul(scalar, v128.load(right + rightOffset + 16)),
+        );
+        acc2 = f32x4.add(
+          acc2,
+          f32x4.mul(scalar, v128.load(right + rightOffset + 32)),
+        );
+        acc3 = f32x4.add(
+          acc3,
+          f32x4.mul(scalar, v128.load(right + rightOffset + 48)),
+        );
+      }
+      let outOffset = f32Offset(outBase + col);
+      v128.store(out + outOffset, acc0);
+      v128.store(out + outOffset + 16, acc1);
+      v128.store(out + outOffset + 32, acc2);
+      v128.store(out + outOffset + 48, acc3);
+    }
+
+    for (; col + 3 < cols; col += 4) {
+      let acc = f32x4.splat(0.0);
+      for (let k = 0; k < shared; k++) {
+        let scalar = f32x4.splat(readF32(left, leftBase + k));
+        acc = f32x4.add(
+          acc,
+          f32x4.mul(
+            scalar,
+            v128.load(right + f32Offset(k * cols + col)),
+          ),
+        );
+      }
+      v128.store(out + f32Offset(outBase + col), acc);
+    }
+
+    for (; col < cols; col++) {
       let sum: f32 = 0.0;
       for (let k = 0; k < shared; k++) {
-        sum += readF32(left, row * shared + k) * readF32(right, k * cols + col);
+        sum += readF32(left, leftBase + k) * readF32(right, k * cols + col);
       }
-      writeF32(out, row * cols + col, sum);
+      writeF32(out, outBase + col, sum);
     }
   }
 }
@@ -983,6 +1051,172 @@ export function fusedElementwise(
   }
 }
 
+function dagLeafVector(
+  ptr: usize,
+  mode: i32,
+  row: i32,
+  col: i32,
+  offset: i32,
+): v128 {
+  if (mode == DAG_OPERAND_ROW) return v128.load(ptr + f32Offset(col));
+  if (mode == DAG_OPERAND_COLUMN) {
+    return f32x4.splat(readF32(ptr, row));
+  }
+  if (mode == DAG_OPERAND_SCALAR) return f32x4.splat(readF32(ptr, 0));
+  return v128.load(ptr + f32Offset(offset));
+}
+
+function dagLeafScalar(
+  ptr: usize,
+  mode: i32,
+  row: i32,
+  col: i32,
+  offset: i32,
+): f32 {
+  if (mode == DAG_OPERAND_ROW) return readF32(ptr, col);
+  if (mode == DAG_OPERAND_COLUMN) return readF32(ptr, row);
+  if (mode == DAG_OPERAND_SCALAR) return readF32(ptr, 0);
+  return readF32(ptr, offset);
+}
+
+function dagReferenceVector(
+  kind: i32,
+  value: i32,
+  mode: i32,
+  trackResults: usize,
+  row: i32,
+  col: i32,
+  offset: i32,
+): v128 {
+  if (kind == DAG_REF_TRACK) {
+    return v128.load(trackResults + dagTrackOffset(value));
+  }
+  return dagLeafVector(<usize> value, mode, row, col, offset);
+}
+
+function dagReferenceScalar(
+  kind: i32,
+  value: i32,
+  mode: i32,
+  trackResults: usize,
+  row: i32,
+  col: i32,
+  offset: i32,
+): f32 {
+  if (kind == DAG_REF_TRACK) {
+    return readF32(trackResults, value << 2);
+  }
+  return dagLeafScalar(<usize> value, mode, row, col, offset);
+}
+
+export function fusedElementwiseDag(
+  out: usize,
+  rows: i32,
+  cols: i32,
+  program: usize,
+  trackCount: i32,
+  trackResults: usize,
+  resultTrack: i32,
+): void {
+  let colLimit = simdLimit(cols);
+
+  for (let row = 0; row < rows; row++) {
+    let rowBase = row * cols;
+    let col = 0;
+
+    for (; col < colLimit; col += 4) {
+      let offset = rowBase + col;
+      let entry = 0;
+      for (let track = 0; track < trackCount; track++) {
+        assert(readDagI32(program, entry, 0) == DAG_TRACK_HEADER);
+        let value = dagReferenceVector(
+          readDagI32(program, entry, 1),
+          readDagI32(program, entry, 2),
+          readDagI32(program, entry, 3),
+          trackResults,
+          row,
+          col,
+          offset,
+        );
+        let opCount = readDagI32(program, entry, 4);
+        entry++;
+
+        for (let op = 0; op < opCount; op++, entry++) {
+          let code = readDagI32(program, entry, 0);
+          let other = f32x4.splat(0.0);
+          let scalarA: f32 = 0.0;
+          let scalarB: f32 = 0.0;
+          if (code <= 6) {
+            other = dagReferenceVector(
+              readDagI32(program, entry, 1),
+              readDagI32(program, entry, 2),
+              readDagI32(program, entry, 3),
+              trackResults,
+              row,
+              col,
+              offset,
+            );
+          } else {
+            scalarA = f32FromBits(readDagI32(program, entry, 3));
+            scalarB = f32FromBits(readDagI32(program, entry, 4));
+          }
+          value = applyFusedVectorOp(value, code, other, scalarA, scalarB);
+        }
+        v128.store(trackResults + dagTrackOffset(track), value);
+      }
+
+      v128.store(
+        out + f32Offset(offset),
+        v128.load(trackResults + dagTrackOffset(resultTrack)),
+      );
+    }
+
+    for (; col < cols; col++) {
+      let offset = rowBase + col;
+      let entry = 0;
+      for (let track = 0; track < trackCount; track++) {
+        assert(readDagI32(program, entry, 0) == DAG_TRACK_HEADER);
+        let value = dagReferenceScalar(
+          readDagI32(program, entry, 1),
+          readDagI32(program, entry, 2),
+          readDagI32(program, entry, 3),
+          trackResults,
+          row,
+          col,
+          offset,
+        );
+        let opCount = readDagI32(program, entry, 4);
+        entry++;
+
+        for (let op = 0; op < opCount; op++, entry++) {
+          let code = readDagI32(program, entry, 0);
+          let other: f32 = 0.0;
+          let scalarA: f32 = 0.0;
+          let scalarB: f32 = 0.0;
+          if (code <= 6) {
+            other = dagReferenceScalar(
+              readDagI32(program, entry, 1),
+              readDagI32(program, entry, 2),
+              readDagI32(program, entry, 3),
+              trackResults,
+              row,
+              col,
+              offset,
+            );
+          } else {
+            scalarA = f32FromBits(readDagI32(program, entry, 3));
+            scalarB = f32FromBits(readDagI32(program, entry, 4));
+          }
+          value = applyFusedScalarOp(value, code, other, scalarA, scalarB);
+        }
+        writeF32(trackResults, track << 2, value);
+      }
+
+      writeF32(out, offset, readF32(trackResults, resultTrack << 2));
+    }
+  }
+}
+
 export function transpose(
   input: usize,
   out: usize,
@@ -1026,6 +1260,24 @@ export function diagonalProduct(input: usize, size: i32): f64 {
   return result;
 }
 
+export function diagonalVectorProduct(input: usize, size: i32): f64 {
+  let result: f64 = 1.0;
+  for (let i = 0; i < size; i++) {
+    result *= <f64> readF32(input, i);
+  }
+  return result;
+}
+
+export function diagonalVectorLogDet(input: usize, size: i32): f64 {
+  let result: f64 = 0.0;
+  for (let i = 0; i < size; i++) {
+    let value = <f64> readF32(input, i);
+    if (value <= 0.0) return f64.NaN;
+    result += Math.log(value);
+  }
+  return result;
+}
+
 export function invertDiagonal(input: usize, out: usize, size: i32): i32 {
   fill(out, size * size, 0.0);
   for (let i = 0; i < size; i++) {
@@ -1046,6 +1298,38 @@ export function solveDiagonal(
 ): i32 {
   for (let r = 0; r < size; r++) {
     let diagonalValue = readF32(diagonalMatrix, r * size + r);
+    if (Math.abs(<f64> diagonalValue) <= EPSILON) return 0;
+
+    let inverseDiagonal = f32x4.splat(1.0 / diagonalValue);
+    let rowBase = r * rhsCols;
+    let c = 0;
+    let limit = simdLimit(rhsCols);
+
+    for (; c < limit; c += 4) {
+      let offset = f32Offset(rowBase + c);
+      v128.store(
+        out + offset,
+        f32x4.mul(v128.load(b + offset), inverseDiagonal),
+      );
+    }
+    for (; c < rhsCols; c++) {
+      let index = rowBase + c;
+      writeF32(out, index, readF32(b, index) / diagonalValue);
+    }
+  }
+
+  return 1;
+}
+
+export function solveDiagonalVector(
+  diagonal: usize,
+  b: usize,
+  out: usize,
+  size: i32,
+  rhsCols: i32,
+): i32 {
+  for (let r = 0; r < size; r++) {
+    let diagonalValue = readF32(diagonal, r);
     if (Math.abs(<f64> diagonalValue) <= EPSILON) return 0;
 
     let inverseDiagonal = f32x4.splat(1.0 / diagonalValue);
@@ -1106,7 +1390,19 @@ export function scaleColsByVector(
 ): void {
   for (let r = 0; r < rows; r++) {
     let rowBase = r * cols;
-    for (let c = 0; c < cols; c++) {
+    let c = 0;
+    let limit = simdLimit(cols);
+    for (; c < limit; c += 4) {
+      let offset = f32Offset(c);
+      v128.store(
+        out + f32Offset(rowBase + c),
+        f32x4.mul(
+          v128.load(input + f32Offset(rowBase + c)),
+          v128.load(vector + offset),
+        ),
+      );
+    }
+    for (; c < cols; c++) {
       writeF32(
         out,
         rowBase + c,
