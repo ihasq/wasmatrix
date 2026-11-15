@@ -57,7 +57,7 @@ function assertArrayAlmostEqual(
 test("wasmatrix exposes the compact 4x4 weight operator as the primary core", async () => {
   const exports = await createCoreExports();
 
-  assert.equal(exports.abiVersion(), 10);
+  assert.equal(exports.abiVersion(), 11);
   assert.equal(exports.weightSystemAbiVersion(), 1);
   assert.equal(exports.operatorAbiVersion(), 4);
   assert.equal(exports.simdProbe(), 1);
@@ -227,6 +227,33 @@ test("wasmatrix records write-out loss without requiring an extra pass", async (
   );
   assertAlmostEqual(exports.localLoss(loss), 90);
   assertAlmostEqual(exports.accumulatedLoss(loss), 90);
+});
+
+test("wasmatrix caches operator classification and handles arbitrary sparse permutations", async () => {
+  const exports = await createCoreExports();
+  const input = writeF32(exports, [1, 2, 3, 4, 5, 6, 7, 8]);
+  const output = exports.allocF32(8);
+  const operator = exports.allocF64(exports.operatorStateF64Length());
+  const loss = exports.allocF64(3);
+
+  exports.operatorResetIdentity(operator);
+  exports.initLossState(loss);
+  exports.operatorApplyF32AndRecordLoss(operator, input, 8, output, loss);
+  assertAlmostEqual(exports.localLoss(loss), 0);
+
+  // Mutation must invalidate the cached identity classification.
+  exports.operatorWriteWeightCell(operator, 0, 0, 2);
+  exports.operatorApplyF32(operator, input, 8, output);
+  assertArrayAlmostEqual(readF32(exports, output, 8), [2, 2, 3, 4, 10, 6, 7, 8]);
+
+  // Swap lane pairs: a permutation not covered by the two phase-cycle kernels.
+  exports.operatorClear(operator);
+  exports.operatorWriteWeightCell(operator, 0, 2, 1);
+  exports.operatorWriteWeightCell(operator, 1, 3, 1);
+  exports.operatorWriteWeightCell(operator, 2, 0, 1);
+  exports.operatorWriteWeightCell(operator, 3, 1, 1);
+  exports.operatorApplyF32(operator, input, 8, output);
+  assertArrayAlmostEqual(readF32(exports, output, 8), [3, 4, 1, 2, 7, 8, 5, 6]);
 });
 
 test("wasmatrix still supports compressed certificates and raw matmul batch", async () => {

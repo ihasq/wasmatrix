@@ -30,6 +30,7 @@ const EW_SQRT = 12;
 const EW_FLOOR = 13;
 const EW_CEIL = 14;
 const EW_CLAMP = 15;
+const EW_AFFINE = 16;
 
 const OPERAND_FULL = 0;
 const OPERAND_ROW = 1;
@@ -49,7 +50,7 @@ const SMALL_LINALG_DIRECT_MAX_SIZE = 2;
 const FACTOR_CACHE_SOLVE_MIN_SIZE = 24;
 const PACKED_MATMUL_MIN_COST = 262_144;
 const MIN_BUFFER_CACHE_BYTES = 64 * 1024;
-const BATCH_INSTRUCTION_I32_SLOTS = 8;
+const BATCH_INSTRUCTION_I32_SLOTS = 10;
 const BATCH_OP_MATMUL = 2;
 const BATCH_OP_SOLVE = 3;
 const BATCH_OP_TRANSPOSE = 4;
@@ -62,6 +63,11 @@ const BATCH_OP_INVERT_DIAGONAL = 19;
 const BATCH_OP_AFFINE = 20;
 const BATCH_OP_SCALE_ROWS_BY_VECTOR = 21;
 const BATCH_OP_SCALE_COLS_BY_VECTOR = 22;
+const BATCH_OP_ONES_LEFT_MATMUL = 23;
+const BATCH_OP_ONES_RIGHT_MATMUL = 24;
+const BATCH_OP_OUTER_LEFT_MATMUL = 25;
+const BATCH_OP_OUTER_RIGHT_MATMUL = 26;
+const BATCH_OP_MATMUL_AFFINE = 27;
 
 let defaultRuntime: any = null;
 let nextRuntimeId = 1;
@@ -208,7 +214,7 @@ function instantiateRuntime(wasmBytes: WasmBytes) {
     throw new Error("wasmatrix SIMD probe failed");
   }
   const abiVersion = runtime.call("abiVersion");
-  if (abiVersion !== 10) {
+  if (abiVersion !== 11) {
     throw new Error(`Unsupported wasmatrix ABI version: ${abiVersion}`);
   }
   runtime.primeBatch();
@@ -254,6 +260,7 @@ class WasmRuntime {
   #exports;
   #memoryBuffer;
   #f32;
+  #f64;
   #i32;
   f64ScratchPtr;
   f64ScratchLength;
@@ -263,12 +270,14 @@ class WasmRuntime {
   cacheBytes;
   cacheEntries;
   bufferCache;
+  scalarCache;
 
   constructor(exports) {
     this.id = nextRuntimeId++;
     this.#exports = exports;
     this.#memoryBuffer = null;
     this.#f32 = null;
+    this.#f64 = null;
     this.#i32 = null;
     this.f64ScratchPtr = 0;
     this.f64ScratchLength = 0;
@@ -278,6 +287,7 @@ class WasmRuntime {
     this.cacheBytes = 0;
     this.cacheEntries = new Map();
     this.bufferCache = new Map();
+    this.scalarCache = new Map();
   }
 
   call(name, ...args) {
@@ -298,6 +308,7 @@ class WasmRuntime {
     if (this.#memoryBuffer !== buffer) {
       this.#memoryBuffer = buffer;
       this.#f32 = new Float32Array(buffer);
+      this.#f64 = new Float64Array(buffer);
       this.#i32 = new Int32Array(buffer);
     }
   }
@@ -310,6 +321,11 @@ class WasmRuntime {
   get i32() {
     this.#refreshViews();
     return this.#i32;
+  }
+
+  get f64() {
+    this.#refreshViews();
+    return this.#f64;
   }
 
   alloc(length) {
@@ -415,6 +431,24 @@ class WasmRuntime {
 
   trimCaches() {
     this.#evictCaches();
+    if (this.cacheLimitBytes === 0) this.scalarCache.clear();
+  }
+
+  getCachedScalar(key) {
+    if (!this.scalarCache.has(key)) return undefined;
+    const value = this.scalarCache.get(key);
+    this.scalarCache.delete(key);
+    this.scalarCache.set(key, value);
+    return value;
+  }
+
+  putCachedScalar(key, value) {
+    if (this.cacheLimitBytes === 0) return;
+    this.scalarCache.delete(key);
+    this.scalarCache.set(key, value);
+    while (this.scalarCache.size > 1024) {
+      this.scalarCache.delete(this.scalarCache.keys().next().value);
+    }
   }
 
   getCachedBuffer(key, length) {
@@ -648,8 +682,15 @@ export class Matrix {
     if (op.code === EW_ADD_SCALAR) {
       return op.scalarA === 0 ? base.#structure : "dense";
     }
-    if (op.code === EW_MULTIPLY_SCALAR || op.code === EW_DIVIDE_SCALAR) {
-      if (op.scalarA === 0 && op.code === EW_MULTIPLY_SCALAR) return "zero";
+    if (
+      op.code === EW_MULTIPLY_SCALAR || op.code === EW_DIVIDE_SCALAR ||
+      op.code === EW_AFFINE
+    ) {
+      if (op.code === EW_AFFINE && op.scalarB !== 0) return "dense";
+      if (
+        op.scalarA === 0 &&
+        (op.code === EW_MULTIPLY_SCALAR || op.code === EW_AFFINE)
+      ) return "zero";
       if (base.#structure === "zero") return "zero";
       if (base.#structure === "diagonal") return "diagonal";
       /* c8 ignore next 3 */
@@ -679,7 +720,8 @@ export class Matrix {
   static #exprView(base, op) {
     base.#assertAlive();
     const source = base.#expr == null ? base : base.#expr.base;
-    const ops = base.#expr == null ? [op] : [...base.#expr.ops, op];
+    const rawOps = base.#expr == null ? [op] : [...base.#expr.ops, op];
+    const ops = Matrix.#normalizeElementwiseOps(rawOps);
     const structure = Matrix.#elementwiseStructure(base, op);
 
     return new Matrix(base.rows, base.cols, null, {
@@ -687,6 +729,59 @@ export class Matrix {
       expr: { base: source, ops },
       structure,
     });
+  }
+
+  static #normalizeElementwiseOps(ops) {
+    const normalized = [];
+    let scale = 1;
+    let bias = 0;
+    let scalarCount = 0;
+    const flushAffine = () => {
+      if (scalarCount === 0) return;
+      normalized.push({
+        code: EW_AFFINE,
+        scalarA: scale,
+        scalarB: bias,
+      });
+      scale = 1;
+      bias = 0;
+      scalarCount = 0;
+    };
+
+    for (const current of ops) {
+      if (current.code === EW_ADD_SCALAR) {
+        bias += current.scalarA;
+        scalarCount++;
+      } else if (current.code === EW_MULTIPLY_SCALAR) {
+        scale *= current.scalarA;
+        bias *= current.scalarA;
+        scalarCount++;
+      } else if (current.code === EW_DIVIDE_SCALAR) {
+        scale /= current.scalarA;
+        bias /= current.scalarA;
+        scalarCount++;
+      } else if (current.code === EW_AFFINE) {
+        scale *= current.scalarA;
+        bias = bias * current.scalarA + current.scalarB;
+        scalarCount++;
+      } else {
+        flushAffine();
+        const previous = normalized[normalized.length - 1];
+        if (
+          previous != null && previous.code === current.code &&
+          (current.code === EW_ABS || current.code === EW_FLOOR ||
+            current.code === EW_CEIL)
+        ) continue;
+        if (previous != null && previous.code === EW_NEGATE &&
+          current.code === EW_NEGATE) {
+          normalized.pop();
+          continue;
+        }
+        normalized.push(current);
+      }
+    }
+    flushAffine();
+    return normalized;
   }
 
   static #view(matrix) {
@@ -806,6 +901,7 @@ export class Matrix {
         temporaryLeft: !leftIsMatrix,
         temporaryRight: !rightIsMatrix,
       },
+      structure: "outer",
     });
   }
 
@@ -841,6 +937,27 @@ export class Matrix {
     const n = matrices.length;
     const costs = Array.from({ length: n }, () => new Array(n).fill(0));
     const splits = Array.from({ length: n }, () => new Array(n).fill(0));
+    const structures = Array.from({ length: n }, () => new Array(n));
+    for (let i = 0; i < n; i++) structures[i][i] = matrices[i].#structure;
+
+    const productStructure = (left, right) => {
+      if (left === "zero" || right === "zero") return "zero";
+      if (left === "identity") return right;
+      if (right === "identity") return left;
+      if (left === "diagonal" && right === "diagonal") return "diagonal";
+      return "dense";
+    };
+
+    const multiplicationCost = (rows, shared, cols, left, right) => {
+      if (left === "zero" || right === "zero" || left === "identity" ||
+        right === "identity") return 0;
+      if (left === "diagonal" || right === "diagonal") return rows * cols;
+      if (left === "ones") return shared * cols + rows * cols;
+      if (right === "ones") return rows * shared + rows * cols;
+      if (left === "outer") return shared * cols + rows * cols;
+      if (right === "outer") return rows * shared + rows * cols;
+      return rows * shared * cols;
+    };
 
     for (let width = 2; width <= n; width++) {
       for (let i = 0; i <= n - width; i++) {
@@ -851,7 +968,13 @@ export class Matrix {
         for (let k = i; k < j; k++) {
           const cost = costs[i][k] +
             costs[k + 1][j] +
-            matrices[i].rows * matrices[k].cols * matrices[j].cols;
+            multiplicationCost(
+              matrices[i].rows,
+              matrices[k].cols,
+              matrices[j].cols,
+              structures[i][k],
+              structures[k + 1][j],
+            );
           if (cost < best) {
             best = cost;
             bestSplit = k;
@@ -860,6 +983,10 @@ export class Matrix {
 
         costs[i][j] = best;
         splits[i][j] = bestSplit;
+        structures[i][j] = productStructure(
+          structures[i][bestSplit],
+          structures[bestSplit + 1][j],
+        );
       }
     }
 
@@ -1306,6 +1433,26 @@ export class Matrix {
       );
     }
 
+    if (this.#ptr === 0 && this.#expr != null) {
+      const ops = this.#expr.ops.map((op) => {
+        if (op.other == null) return { ...op };
+        let operandMode = op.operandMode;
+        if (operandMode === OPERAND_ROW) operandMode = OPERAND_COLUMN;
+        else if (operandMode === OPERAND_COLUMN) operandMode = OPERAND_ROW;
+        return {
+          ...op,
+          other: op.other.transpose(),
+          operandMode,
+        };
+      });
+      return new Matrix(this.cols, this.rows, null, {
+        runtime: this.#runtime,
+        transposeOf: this,
+        expr: { base: this.#expr.base.transpose(), ops },
+        structure: this.#structure,
+      });
+    }
+
     let structure = "dense";
     if (this.#structure === "identity") structure = "identity";
     if (this.#structure === "zero") structure = "zero";
@@ -1409,19 +1556,42 @@ export class Matrix {
       );
     }
 
-    const ptr = this.#runtime.alloc(this.rows);
     try {
-      this.#runtime.call(
-        "matvec",
-        this.#materializedPtr(),
-        vec.ptr,
-        ptr,
-        this.rows,
-        this.cols,
-      );
-      return this.#runtime.read(ptr, this.rows);
+      if (this.#structure === "zero") return new Float32Array(this.rows);
+      if (this.#structure === "identity") {
+        return this.#runtime.read(vec.ptr, this.rows);
+      }
+      if (this.#structure === "ones") {
+        const total = this.#runtime.call("sum", vec.ptr, vec.length);
+        return new Float32Array(this.rows).fill(total);
+      }
+
+      const diagonalSource = this.#diagonalVectorSource();
+      const ptr = this.#runtime.alloc(this.rows);
+      try {
+        if (diagonalSource != null) {
+          this.#runtime.call(
+            "diagonalMatvec",
+            diagonalSource.#materializedPtr(),
+            vec.ptr,
+            ptr,
+            this.rows,
+          );
+        } else {
+          this.#runtime.call(
+            "matvec",
+            this.#materializedPtr(),
+            vec.ptr,
+            ptr,
+            this.rows,
+            this.cols,
+          );
+        }
+        return this.#runtime.read(ptr, this.rows);
+      } finally {
+        this.#runtime.free(ptr);
+      }
     } finally {
-      this.#runtime.free(ptr);
       vec.free();
     }
   }
@@ -1450,6 +1620,17 @@ export class Matrix {
 
   sum() {
     this.#assertAlive();
+    if (
+      this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
+      this.#affineBias === 0
+    ) return this.#cachedReduction("sum", () => this.#base.sum());
+    if (this.#ptr === 0 && this.#transposeOf != null) {
+      return this.#cachedReduction("sum", () => this.#transposeOf.sum());
+    }
+    if (this.#ptr === 0 && this.#expr != null) {
+      this.#computeExpressionStats("sum");
+      return this.#getCachedReduction("sum");
+    }
     const diagonalSource = this.#diagonalVectorSource();
     if (diagonalSource != null) {
       return this.#cachedReduction("sum", () => diagonalSource.sum());
@@ -1462,6 +1643,17 @@ export class Matrix {
 
   minValue() {
     this.#assertAlive();
+    if (
+      this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
+      this.#affineBias === 0
+    ) return this.#cachedReduction("min", () => this.#base.minValue());
+    if (this.#ptr === 0 && this.#transposeOf != null) {
+      return this.#cachedReduction("min", () => this.#transposeOf.minValue());
+    }
+    if (this.#ptr === 0 && this.#expr != null) {
+      this.#computeExpressionStats("min");
+      return this.#getCachedReduction("min");
+    }
     const diagonalSource = this.#diagonalVectorSource();
     if (diagonalSource != null) {
       return this.#cachedReduction("min", () => {
@@ -1478,6 +1670,17 @@ export class Matrix {
 
   maxValue() {
     this.#assertAlive();
+    if (
+      this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
+      this.#affineBias === 0
+    ) return this.#cachedReduction("max", () => this.#base.maxValue());
+    if (this.#ptr === 0 && this.#transposeOf != null) {
+      return this.#cachedReduction("max", () => this.#transposeOf.maxValue());
+    }
+    if (this.#ptr === 0 && this.#expr != null) {
+      this.#computeExpressionStats("max");
+      return this.#getCachedReduction("max");
+    }
     const diagonalSource = this.#diagonalVectorSource();
     if (diagonalSource != null) {
       return this.#cachedReduction("max", () => {
@@ -1494,9 +1697,39 @@ export class Matrix {
 
   trace() {
     this.#assertAlive();
+    if (
+      this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
+      this.#affineBias === 0
+    ) return this.#cachedReduction("trace", () => this.#base.trace());
+    if (this.#ptr === 0 && this.#transposeOf != null) {
+      return this.#cachedReduction("trace", () => this.#transposeOf.trace());
+    }
     const diagonalSource = this.#diagonalVectorSource();
     if (diagonalSource != null) {
       return this.#cachedReduction("trace", () => diagonalSource.sum());
+    }
+    const affine = this.#affineExpressionInfo();
+    if (
+      this.#ptr === 0 && affine != null &&
+      affine.base.#ptr === 0 && affine.base.#matmulOf != null &&
+      affine.base.#matmulOf.variant === MATMUL_NN &&
+      affine.base.#matmulOf.gram == null && this.rows === this.cols
+    ) {
+      const { left, right } = affine.base.#matmulOf;
+      return this.#cachedReduction(
+        "trace-affine-matmul",
+        () =>
+          this.#runtime.call(
+            "traceMatmul",
+            left.#materializedPtr(),
+            right.#materializedPtr(),
+            left.rows,
+            left.cols,
+          ) * affine.scale + affine.bias * Math.min(this.rows, this.cols),
+      );
+    }
+    if (this.#ptr === 0 && this.#expr != null) {
+      return this.#computeExpressionTrace();
     }
     if (
       this.#ptr === 0 &&
@@ -1536,6 +1769,25 @@ export class Matrix {
 
   frobeniusNorm() {
     this.#assertAlive();
+    if (
+      this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
+      this.#affineBias === 0
+    ) {
+      return this.#cachedReduction(
+        "frobenius",
+        () => this.#base.frobeniusNorm(),
+      );
+    }
+    if (this.#ptr === 0 && this.#transposeOf != null) {
+      return this.#cachedReduction(
+        "frobenius",
+        () => this.#transposeOf.frobeniusNorm(),
+      );
+    }
+    if (this.#ptr === 0 && this.#expr != null) {
+      this.#computeExpressionStats("frobenius");
+      return this.#getCachedReduction("frobenius");
+    }
     const diagonalSource = this.#diagonalVectorSource();
     if (diagonalSource != null) {
       return this.#cachedReduction(
@@ -1697,6 +1949,10 @@ export class Matrix {
       );
     }
 
+    if (this.#structure === "identity") {
+      return rhsIsMatrix ? Matrix.#view(right) : right;
+    }
+
     return new Matrix(this.rows, right.cols, null, {
       runtime: this.#runtime,
       solveOf: {
@@ -1748,6 +2004,21 @@ export class Matrix {
       value = Math.min(this.rows, this.cols);
     } else if (this.#structure === "zero") {
       value = 0;
+    } else if (this.#structure === "diagonal") {
+      const diagonalSource = this.#diagonalVectorSource();
+      value = diagonalSource == null
+        ? this.#runtime.call(
+          "diagonalRank",
+          this.#materializedPtr(),
+          Math.min(this.rows, this.cols),
+          epsilon,
+        )
+        : this.#runtime.call(
+          "diagonalVectorRank",
+          diagonalSource.#materializedPtr(),
+          Math.min(this.rows, this.cols),
+          epsilon,
+        );
     } else {
       const qr = this.#qrFactor();
       value = this.#runtime.call(
@@ -1863,17 +2134,28 @@ export class Matrix {
       cached.dependencyKey !== dependencyKey
     ) {
       this.#reductionCache.delete(key);
-      return null;
+      const shared = this.#runtime.getCachedScalar(
+        `${key}:${dependencyKey}`,
+      );
+      if (shared === undefined) return null;
+      this.#reductionCache.set(key, {
+        version: this.#version,
+        dependencyKey,
+        value: shared,
+      });
+      return shared;
     }
     return cached.value;
   }
 
   #setCachedReduction(key, value) {
+    const dependencyKey = this.#materializationCacheKey() ?? this.#identityKey();
     this.#reductionCache.set(key, {
       version: this.#version,
-      dependencyKey: this.#materializationCacheKey() ?? this.#identityKey(),
+      dependencyKey,
       value,
     });
+    this.#runtime.putCachedScalar(`${key}:${dependencyKey}`, value);
   }
 
   #cachedReduction(key, compute) {
@@ -1882,6 +2164,119 @@ export class Matrix {
 
     const value = compute();
     this.#setCachedReduction(key, value);
+    return value;
+  }
+
+  #computeExpressionStats(requested) {
+    if (this.#getCachedReduction(requested) != null) return;
+    const statsMask = requested === "sum" ? 1 : 14;
+
+    let call;
+    if (this.#hasNestedElementwiseDag()) {
+      const compiled = this.#compileExpressionDag();
+      call = (outPtr) =>
+        this.#runtime.call(
+          "fusedElementwiseDagStats",
+          this.rows,
+          this.cols,
+          compiled.programPtr,
+          compiled.trackCount,
+          compiled.trackResultsPtr,
+          compiled.resultTrack,
+          statsMask,
+          outPtr,
+        );
+    } else {
+      const affine = this.#affineExpressionInfo();
+      let base = this.#expr.base;
+      let ops = this.#expr.ops;
+      if (affine != null) {
+        base = affine.base;
+        ops = [
+          {
+            code: EW_MULTIPLY_SCALAR,
+            scalarA: affine.scale,
+            scalarB: 0,
+          },
+          { code: EW_ADD_SCALAR, scalarA: affine.bias, scalarB: 0 },
+        ];
+      }
+      const metadata = this.#compileElementwiseMetadata(base, ops);
+      call = (outPtr) =>
+        this.#runtime.call(
+          "fusedElementwiseStats",
+          metadata.basePtr,
+          this.rows,
+          this.cols,
+          metadata.opcodesPtr,
+          metadata.scalarAPtr,
+          metadata.scalarBPtr,
+          metadata.operandPtrsPtr,
+          metadata.operandModesPtr,
+          metadata.opCount,
+          statsMask,
+          outPtr,
+        );
+    }
+
+    const outPtr = this.#runtime.f64Scratch(4);
+    call(outPtr);
+    const start = outPtr >>> 3;
+    const values = this.#runtime.f64.slice(start, start + 4);
+    if ((statsMask & 1) !== 0) this.#setCachedReduction("sum", values[0]);
+    if ((statsMask & 2) !== 0) this.#setCachedReduction("min", values[1]);
+    if ((statsMask & 4) !== 0) this.#setCachedReduction("max", values[2]);
+    if ((statsMask & 8) !== 0) {
+      this.#setCachedReduction("frobenius", values[3]);
+    }
+  }
+
+  #computeExpressionTrace() {
+    const cached = this.#getCachedReduction("trace");
+    if (cached != null) return cached;
+
+    let value;
+    if (this.#hasNestedElementwiseDag()) {
+      const compiled = this.#compileExpressionDag();
+      value = this.#runtime.call(
+        "fusedElementwiseDagTrace",
+        this.rows,
+        this.cols,
+        compiled.programPtr,
+        compiled.trackCount,
+        compiled.trackResultsPtr,
+        compiled.resultTrack,
+      );
+    } else {
+      const affine = this.#affineExpressionInfo();
+      let base = this.#expr.base;
+      let ops = this.#expr.ops;
+      if (affine != null) {
+        base = affine.base;
+        ops = [
+          {
+            code: EW_MULTIPLY_SCALAR,
+            scalarA: affine.scale,
+            scalarB: 0,
+          },
+          { code: EW_ADD_SCALAR, scalarA: affine.bias, scalarB: 0 },
+        ];
+      }
+      const metadata = this.#compileElementwiseMetadata(base, ops);
+      value = this.#runtime.call(
+        "fusedElementwiseTrace",
+        metadata.basePtr,
+        this.rows,
+        this.cols,
+        metadata.opcodesPtr,
+        metadata.scalarAPtr,
+        metadata.scalarBPtr,
+        metadata.operandPtrsPtr,
+        metadata.operandModesPtr,
+        metadata.opCount,
+      );
+    }
+    this.#setCachedReduction("trace", value);
     return value;
   }
 
@@ -2180,6 +2575,27 @@ export class Matrix {
         return Matrix.#view(other);
       }
       if (
+        (code === EW_ADD || code === EW_SUBTRACT ||
+          code === EW_MULTIPLY) &&
+        this.#structure === "diagonal" && other.#structure === "diagonal"
+      ) {
+        const leftDiagonal = this.#diagonalVectorSource();
+        const rightDiagonal = other.#diagonalVectorSource();
+        if (leftDiagonal != null && rightDiagonal != null) {
+          const diagonal = code === EW_ADD
+            ? leftDiagonal.add(rightDiagonal)
+            : code === EW_SUBTRACT
+            ? leftDiagonal.subtract(rightDiagonal)
+            : leftDiagonal.hadamard(rightDiagonal);
+          return new Matrix(this.rows, this.cols, null, {
+            runtime: this.#runtime,
+            diagonalOf: diagonal,
+            diagonalTemporary: true,
+            structure: "diagonal",
+          });
+        }
+      }
+      if (
         code === EW_DIVIDE && optimizationOptions.fastMath && this === other
       ) return Matrix.ones(this.rows, this.cols);
 
@@ -2263,7 +2679,6 @@ export class Matrix {
       this.#transposeOf != null &&
       this.#base == null &&
       this.#inverseOf == null &&
-      this.#expr == null &&
       this.#matmulOf == null &&
       this.#solveOf == null
     ) {
@@ -2282,6 +2697,8 @@ export class Matrix {
         factor *= op.scalarA;
       } else if (op.code === EW_DIVIDE_SCALAR) {
         factor /= op.scalarA;
+      } else if (op.code === EW_AFFINE && op.scalarB === 0) {
+        factor *= op.scalarA;
       } else {
         return null;
       }
@@ -2308,6 +2725,9 @@ export class Matrix {
       } else if (op.code === EW_DIVIDE_SCALAR) {
         scale /= op.scalarA;
         bias /= op.scalarA;
+      } else if (op.code === EW_AFFINE) {
+        scale *= op.scalarA;
+        bias = bias * op.scalarA + op.scalarB;
       } else {
         return null;
       }
@@ -2320,6 +2740,17 @@ export class Matrix {
     };
   }
 
+  #affineMatmulInfo() {
+    const affine = this.#affineExpressionInfo();
+    if (
+      affine == null || affine.base.#ptr !== 0 ||
+      affine.base.#matmulOf == null ||
+      affine.base.#matmulOf.variant !== MATMUL_NN ||
+      affine.base.#matmulOf.gram != null
+    ) return null;
+    return { ...affine, matmul: affine.base.#matmulOf };
+  }
+
   #matmulScalarRewrite(other) {
     let left = this;
     let right = other;
@@ -2327,13 +2758,27 @@ export class Matrix {
     const outputCost = this.rows * other.cols;
 
     const leftFactor = this.#scalarFactorInfo();
-    if (leftFactor != null && outputCost <= this.length) {
+    if (
+      leftFactor != null &&
+      (outputCost <= this.length ||
+        leftFactor.matrix.#structure === "ones" ||
+        leftFactor.matrix.#structure === "diagonal" ||
+        leftFactor.matrix.#structure === "identity" ||
+        leftFactor.matrix.#structure === "zero")
+    ) {
       left = leftFactor.matrix;
       factor *= leftFactor.factor;
     }
 
     const rightFactor = other.#scalarFactorInfo();
-    if (rightFactor != null && outputCost <= other.length) {
+    if (
+      rightFactor != null &&
+      (outputCost <= other.length ||
+        rightFactor.matrix.#structure === "ones" ||
+        rightFactor.matrix.#structure === "diagonal" ||
+        rightFactor.matrix.#structure === "identity" ||
+        rightFactor.matrix.#structure === "zero")
+    ) {
       right = rightFactor.matrix;
       factor *= rightFactor.factor;
     }
@@ -2480,6 +2925,19 @@ export class Matrix {
       return true;
     }
 
+    const affineMatmul = this.#affineMatmulInfo();
+    if (affineMatmul != null) {
+      const { left, right } = affineMatmul.matmul;
+      left.#assertAlive();
+      right.#assertAlive();
+      this.#assertSameRuntime(left);
+      this.#assertSameRuntime(right);
+      if (!left.#collectBatchMaterialization(nodes, seen)) return false;
+      if (!right.#collectBatchMaterialization(nodes, seen)) return false;
+      nodes.push(this);
+      return true;
+    }
+
     const affineExpression = this.#affineExpressionInfo();
     if (affineExpression != null) {
       affineExpression.base.#assertAlive();
@@ -2541,6 +2999,46 @@ export class Matrix {
       this.#assertSameRuntime(left);
       this.#assertSameRuntime(right);
       if (this.#matmulOf.variant === MATMUL_NN) {
+        if (left.#structure === "ones") {
+          if (!right.#collectBatchMaterialization(nodes, seen)) return false;
+          nodes.push(this);
+          return true;
+        }
+        if (right.#structure === "ones") {
+          if (!left.#collectBatchMaterialization(nodes, seen)) return false;
+          nodes.push(this);
+          return true;
+        }
+        if (
+          optimizationOptions.fastMath && left.#ptr === 0 &&
+          left.#outerOf != null
+        ) {
+          const outer = left.#outerOf;
+          if (!outer.left.#collectBatchMaterialization(nodes, seen)) {
+            return false;
+          }
+          if (!outer.right.#collectBatchMaterialization(nodes, seen)) {
+            return false;
+          }
+          if (!right.#collectBatchMaterialization(nodes, seen)) return false;
+          nodes.push(this);
+          return true;
+        }
+        if (
+          optimizationOptions.fastMath && right.#ptr === 0 &&
+          right.#outerOf != null
+        ) {
+          const outer = right.#outerOf;
+          if (!left.#collectBatchMaterialization(nodes, seen)) return false;
+          if (!outer.left.#collectBatchMaterialization(nodes, seen)) {
+            return false;
+          }
+          if (!outer.right.#collectBatchMaterialization(nodes, seen)) {
+            return false;
+          }
+          nodes.push(this);
+          return true;
+        }
         const leftDiagonal = left.#diagonalVectorSource();
         if (leftDiagonal != null) {
           leftDiagonal.#assertAlive();
@@ -2615,7 +3113,69 @@ export class Matrix {
     return false;
   }
 
+  #batchDependencies() {
+    const affineMatmul = this.#affineMatmulInfo();
+    if (affineMatmul != null) {
+      return [affineMatmul.matmul.left, affineMatmul.matmul.right];
+    }
+    const affine = this.#affineExpressionInfo();
+    if (affine != null) return [affine.base];
+    if (this.#base != null) return [this.#base];
+    if (this.#inverseOf != null) return [this.#inverseOf];
+    if (this.#outerOf != null) {
+      return [this.#outerOf.left, this.#outerOf.right];
+    }
+    if (this.#diagonalOf != null) return [this.#diagonalOf];
+    if (this.#matmulOf != null) {
+      const { left, right, variant } = this.#matmulOf;
+      if (variant === MATMUL_NN && left.#structure === "ones") return [right];
+      if (variant === MATMUL_NN && right.#structure === "ones") return [left];
+      if (
+        optimizationOptions.fastMath && variant === MATMUL_NN &&
+        left.#ptr === 0 && left.#outerOf != null
+      ) {
+        return [left.#outerOf.left, left.#outerOf.right, right];
+      }
+      if (
+        optimizationOptions.fastMath && variant === MATMUL_NN &&
+        right.#ptr === 0 && right.#outerOf != null
+      ) {
+        return [left, right.#outerOf.left, right.#outerOf.right];
+      }
+      const leftDiagonal = left.#diagonalVectorSource();
+      if (variant === MATMUL_NN && leftDiagonal != null) {
+        return [leftDiagonal, right];
+      }
+      const rightDiagonal = right.#diagonalVectorSource();
+      if (variant === MATMUL_NN && rightDiagonal != null) {
+        return [left, rightDiagonal];
+      }
+      return [left, right];
+    }
+    if (this.#solveOf != null) {
+      return [this.#solveOf.left, this.#solveOf.right];
+    }
+    if (this.#transposeOf != null) return [this.#transposeOf];
+    return [];
+  }
+
   #batchInstructionFor(ptrOf) {
+    const affineMatmul = this.#affineMatmulInfo();
+    if (affineMatmul != null) {
+      const { left, right } = affineMatmul.matmul;
+      return [
+        BATCH_OP_MATMUL_AFFINE,
+        ptrOf(left),
+        ptrOf(right),
+        ptrOf(this),
+        left.rows,
+        left.cols,
+        right.cols,
+        f32Bits(affineMatmul.scale),
+        f32Bits(affineMatmul.bias),
+      ];
+    }
+
     const affineExpression = this.#affineExpressionInfo();
     if (affineExpression != null) {
       return [
@@ -2672,6 +3232,56 @@ export class Matrix {
     if (this.#matmulOf != null) {
       const { left, right, variant } = this.#matmulOf;
       if (variant === MATMUL_NN) {
+        if (left.#structure === "ones") {
+          return [
+            BATCH_OP_ONES_LEFT_MATMUL,
+            ptrOf(right),
+            ptrOf(this),
+            this.rows,
+            left.cols,
+            this.cols,
+          ];
+        }
+        if (right.#structure === "ones") {
+          return [
+            BATCH_OP_ONES_RIGHT_MATMUL,
+            ptrOf(left),
+            ptrOf(this),
+            this.rows,
+            left.cols,
+            this.cols,
+          ];
+        }
+        if (
+          optimizationOptions.fastMath && left.#ptr === 0 &&
+          left.#outerOf != null
+        ) {
+          return [
+            BATCH_OP_OUTER_LEFT_MATMUL,
+            ptrOf(left.#outerOf.left),
+            ptrOf(left.#outerOf.right),
+            ptrOf(right),
+            ptrOf(this),
+            this.rows,
+            left.cols,
+            this.cols,
+          ];
+        }
+        if (
+          optimizationOptions.fastMath && right.#ptr === 0 &&
+          right.#outerOf != null
+        ) {
+          return [
+            BATCH_OP_OUTER_RIGHT_MATMUL,
+            ptrOf(left),
+            ptrOf(right.#outerOf.left),
+            ptrOf(right.#outerOf.right),
+            ptrOf(this),
+            this.rows,
+            left.cols,
+            this.cols,
+          ];
+        }
         const leftDiagonal = left.#diagonalVectorSource();
         if (leftDiagonal != null) {
           return [
@@ -2785,10 +3395,68 @@ export class Matrix {
     const offsets = new Map();
     offsets.set(this, 0);
     let totalLength = this.length;
-    for (const node of nodes) {
-      if (node.#ptr || offsets.has(node)) continue;
-      offsets.set(node, totalLength);
-      totalLength += node.length;
+
+    // Keep only simultaneously-live intermediates in the slab. The result owns
+    // offset zero; all other regions are recycled after their final consumer.
+    const positions = new Map();
+    for (let i = 0; i < nodes.length; i++) positions.set(nodes[i], i);
+    const lastUse = new Map();
+    for (let i = 0; i < nodes.length; i++) {
+      for (const dependency of nodes[i].#batchDependencies()) {
+        if (positions.has(dependency)) {
+          lastUse.set(dependency, Math.max(lastUse.get(dependency) ?? -1, i));
+        }
+      }
+    }
+
+    const active = [];
+    const freeRegions = [];
+    const releaseBefore = (index) => {
+      for (let i = active.length - 1; i >= 0; i--) {
+        if (active[i].end >= index) continue;
+        freeRegions.push({ offset: active[i].offset, length: active[i].length });
+        active.splice(i, 1);
+      }
+      freeRegions.sort((a, b) => a.offset - b.offset);
+      for (let i = freeRegions.length - 1; i > 0; i--) {
+        const left = freeRegions[i - 1];
+        const right = freeRegions[i];
+        if (left.offset + left.length === right.offset) {
+          left.length += right.length;
+          freeRegions.splice(i, 1);
+        }
+      }
+    };
+
+    for (let index = 0; index < nodes.length; index++) {
+      const node = nodes[index];
+      releaseBefore(index);
+      if (node === this || node.#ptr || node.#hasLocalBacking()) continue;
+
+      let regionIndex = -1;
+      for (let i = 0; i < freeRegions.length; i++) {
+        if (freeRegions[i].length >= node.length) {
+          regionIndex = i;
+          break;
+        }
+      }
+      let offset;
+      if (regionIndex >= 0) {
+        const region = freeRegions[regionIndex];
+        offset = region.offset;
+        region.offset += node.length;
+        region.length -= node.length;
+        if (region.length === 0) freeRegions.splice(regionIndex, 1);
+      } else {
+        offset = totalLength;
+        totalLength += node.length;
+      }
+      offsets.set(node, offset);
+      active.push({
+        offset,
+        length: node.length,
+        end: lastUse.get(node) ?? index,
+      });
     }
 
     const slabPtr = this.#runtime.alloc(totalLength);
@@ -2846,31 +3514,10 @@ export class Matrix {
     return this.#ptr;
   }
 
-  #materializeExpression(ptr) {
-    if (this.#hasNestedElementwiseDag()) {
-      this.#materializeExpressionDag(ptr);
-      return;
-    }
-
-    const { base, ops } = this.#expr;
+  #compileElementwiseMetadata(base, ops) {
     base.#assertAlive();
     this.#assertSameRuntime(base);
-
     const basePtr = base.#materializedPtr();
-    const affine = this.#affineExpressionInfo();
-
-    if (affine != null) {
-      this.#runtime.call(
-        "affine",
-        basePtr,
-        ptr,
-        this.length,
-        affine.scale,
-        affine.bias,
-      );
-      return;
-    }
-
     const opcodes = new Int32Array(ops.length);
     const scalarA = new Float32Array(ops.length);
     const scalarB = new Float32Array(ops.length);
@@ -2905,18 +3552,52 @@ export class Matrix {
     this.#runtime.i32.set(operandPtrs, operandPtrsPtr >>> 2);
     this.#runtime.i32.set(operandModes, operandModesPtr >>> 2);
 
-    this.#runtime.call(
-      "fusedElementwise",
+    return {
       basePtr,
-      ptr,
-      this.rows,
-      this.cols,
       opcodesPtr,
       scalarAPtr,
       scalarBPtr,
       operandPtrsPtr,
       operandModesPtr,
-      ops.length,
+      opCount: ops.length,
+    };
+  }
+
+  #materializeExpression(ptr) {
+    if (this.#hasNestedElementwiseDag()) {
+      this.#materializeExpressionDag(ptr);
+      return;
+    }
+
+    const { base, ops } = this.#expr;
+    const affine = this.#affineExpressionInfo();
+
+    if (affine != null) {
+      this.#runtime.call(
+        "affine",
+        affine.base.#materializedPtr(),
+        ptr,
+        this.length,
+        affine.scale,
+        affine.bias,
+      );
+      return;
+    }
+
+    const metadata = this.#compileElementwiseMetadata(base, ops);
+
+    this.#runtime.call(
+      "fusedElementwise",
+      metadata.basePtr,
+      ptr,
+      this.rows,
+      this.cols,
+      metadata.opcodesPtr,
+      metadata.scalarAPtr,
+      metadata.scalarBPtr,
+      metadata.operandPtrsPtr,
+      metadata.operandModesPtr,
+      metadata.opCount,
     );
   }
 
@@ -2943,9 +3624,10 @@ export class Matrix {
     );
   }
 
-  #materializeExpressionDag(ptr) {
+  #compileExpressionDag() {
     const tracks = [];
     const trackIndexes = new Map();
+    const structuralTrackIndexes = new Map();
 
     const leafReference = (matrix) => ({
       kind: DAG_REF_LEAF,
@@ -2972,6 +3654,14 @@ export class Matrix {
     const compileTrack = (matrix) => {
       const cached = trackIndexes.get(matrix);
       if (cached != null) return cached;
+      const structuralKey = matrix.#materializationCacheKey();
+      if (structuralKey != null) {
+        const structuralCached = structuralTrackIndexes.get(structuralKey);
+        if (structuralCached != null) {
+          trackIndexes.set(matrix, structuralCached);
+          return structuralCached;
+        }
+      }
 
       let base;
       const ops = [];
@@ -3022,6 +3712,9 @@ export class Matrix {
       const index = tracks.length;
       tracks.push({ base, ops });
       trackIndexes.set(matrix, index);
+      if (structuralKey != null) {
+        structuralTrackIndexes.set(structuralKey, index);
+      }
       return index;
     };
 
@@ -3049,15 +3742,25 @@ export class Matrix {
     this.#runtime.i32.set(program, scratchPtr >>> 2);
     const trackResultsPtr = scratchPtr + (program.length << 2);
 
+    return {
+      programPtr: scratchPtr,
+      trackCount: tracks.length,
+      trackResultsPtr,
+      resultTrack,
+    };
+  }
+
+  #materializeExpressionDag(ptr) {
+    const compiled = this.#compileExpressionDag();
     this.#runtime.call(
       "fusedElementwiseDag",
       ptr,
       this.rows,
       this.cols,
-      scratchPtr,
-      tracks.length,
-      trackResultsPtr,
-      resultTrack,
+      compiled.programPtr,
+      compiled.trackCount,
+      compiled.trackResultsPtr,
+      compiled.resultTrack,
     );
   }
 

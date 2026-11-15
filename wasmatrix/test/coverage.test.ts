@@ -604,7 +604,7 @@ test("optimizer lowering reaches compact specialized kernels", () => {
     listenerCalls.length = 0;
     left.add(right).abs().sqrt().sum();
     assert.equal(count("allocI32"), 0);
-    assert.equal(count("fusedElementwise"), 1);
+    assert.equal(count("fusedElementwiseStats"), 1);
 
     listenerCalls.length = 0;
     const dagLeft = Matrix.from(2, 4, [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -638,5 +638,93 @@ test("optimizer lowering reaches compact specialized kernels", () => {
     } else {
       globalThis[listenersKey] = previousListeners;
     }
+  }
+});
+
+test("optimizer lowers terminal, structured and epilogue operations", () => {
+  const calls = [];
+  const listenersKey = Symbol.for("wasmatrix.wasmCallListeners");
+  const previousListeners = globalThis[listenersKey];
+  globalThis[listenersKey] = new Set([(name) => calls.push(name)]);
+  const count = (name) => calls.filter((item) => item === name).length;
+
+  try {
+    const rhs = Matrix.from(4, 2, [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.deepEqual(Matrix.identity(4).solve(rhs).toArray(), rhs.toArray());
+    assert.equal(count("luFactor"), 0);
+
+    calls.length = 0;
+    assert.deepEqual(Matrix.ones(3, 4).matmul(rhs).toArray(), [
+      [16, 20],
+      [16, 20],
+      [16, 20],
+    ]);
+    assert.equal(count("executeBatch"), 1);
+
+    calls.length = 0;
+    assert.equal(Matrix.diagonal([0, 2, 0, 4]).rank(), 2);
+    assert.equal(count("diagonalVectorRank"), 1);
+    assert.equal(count("qrFactor"), 0);
+
+    const u = Matrix.from(3, 1, [1, 2, 3]);
+    const v = Matrix.from(4, 1, [1, 0, -1, 2]);
+    configure({ fastMath: true });
+    try {
+      assert.deepEqual(Matrix.outer(u, v).matmul(rhs).toArray(), [
+        [10, 12],
+        [20, 24],
+        [30, 36],
+      ]);
+      assert.deepEqual(
+        Matrix.from(2, 3, [1, 2, 3, 4, 5, 6]).matmul(
+          Matrix.outer(u, Matrix.from(2, 1, [2, -1])),
+        ).toArray(),
+        [[28, -14], [64, -32]],
+      );
+    } finally {
+      configure({ fastMath: false });
+    }
+
+    const base = Matrix.from(4, 4, values(16, 13));
+    const expression = base.add(base).abs().sqrt();
+    calls.length = 0;
+    expression.sum();
+    expression.minValue();
+    expression.maxValue();
+    expression.frobeniusNorm();
+    assert.equal(count("fusedElementwiseStats"), 2);
+    assert.equal(count("sum"), 0);
+
+    calls.length = 0;
+    expression.trace();
+    assert.equal(count("fusedElementwiseTrace"), 1);
+    assert.equal(count("trace"), 0);
+
+    calls.length = 0;
+    base.matmul(base).scale(2).addScalar(1).toArray();
+    assert.equal(count("executeBatch"), 1);
+    assert.equal(count("affine"), 0);
+
+    calls.length = 0;
+    base.matmul(base).scale(2).addScalar(1).trace();
+    assert.equal(count("traceMatmul"), 1);
+    assert.equal(count("executeBatch"), 0);
+
+    calls.length = 0;
+    const transposedExpression = base.add(base).abs().transpose();
+    almostEqual(transposedExpression.sum(), base.add(base).abs().sum());
+    assert.equal(count("transpose"), 0);
+
+    almostArray(Matrix.identity(4).matvec([1, 2, 3, 4]), [1, 2, 3, 4]);
+    almostArray(Matrix.ones(2, 4).matvec([1, 2, 3, 4]), [10, 10]);
+    almostArray(Matrix.diagonal([2, 3, 4, 5]).matvec([1, 2, 3, 4]), [
+      2,
+      6,
+      12,
+      20,
+    ]);
+  } finally {
+    if (previousListeners === undefined) delete globalThis[listenersKey];
+    else globalThis[listenersKey] = previousListeners;
   }
 });

@@ -4,7 +4,7 @@ const WEIGHT_CELLS: i32 = CERTIFICATE_LANES * CERTIFICATE_LANES;
 const EPSILON: f64 = 1.0e-12;
 const ONE_THIRD: f64 = 1.0 / 3.0;
 const ONE_FOURTH: f64 = 1.0 / 4.0;
-const BATCH_INSTRUCTION_I32_SLOTS: i32 = 8;
+const BATCH_INSTRUCTION_I32_SLOTS: i32 = 10;
 const BATCH_OP_MATMUL: i32 = 2;
 const BATCH_OP_SOLVE: i32 = 3;
 const BATCH_OP_TRANSPOSE: i32 = 4;
@@ -17,6 +17,11 @@ const BATCH_OP_INVERT_DIAGONAL: i32 = 19;
 const BATCH_OP_AFFINE: i32 = 20;
 const BATCH_OP_SCALE_ROWS_BY_VECTOR: i32 = 21;
 const BATCH_OP_SCALE_COLS_BY_VECTOR: i32 = 22;
+const BATCH_OP_ONES_LEFT_MATMUL: i32 = 23;
+const BATCH_OP_ONES_RIGHT_MATMUL: i32 = 24;
+const BATCH_OP_OUTER_LEFT_MATMUL: i32 = 25;
+const BATCH_OP_OUTER_RIGHT_MATMUL: i32 = 26;
+const BATCH_OP_MATMUL_AFFINE: i32 = 27;
 const DAG_ENTRY_I32_SLOTS: i32 = 5;
 const DAG_TRACK_HEADER: i32 = -1;
 const DAG_REF_LEAF: i32 = 0;
@@ -30,6 +35,31 @@ const SKIP_DEAD_INPUT_SHIFT: i32 = 16;
 const SKIP_DEAD_OUTPUT_SHIFT: i32 = 20;
 const SKIP_DEAD_INPUT_MASK: i32 = 0xf << SKIP_DEAD_INPUT_SHIFT;
 const SKIP_DEAD_OUTPUT_MASK: i32 = 0xf << SKIP_DEAD_OUTPUT_SHIFT;
+const OPERATOR_CACHE_SLOTS: i32 = 16;
+const OPERATOR_KIND_ZERO: i32 = 1;
+const OPERATOR_KIND_IDENTITY: i32 = 2;
+const OPERATOR_KIND_INVARIANT: i32 = 3;
+const OPERATOR_KIND_CYCLE: i32 = 4;
+const OPERATOR_KIND_REVERSE_CYCLE: i32 = 5;
+const OPERATOR_KIND_DIAGONAL: i32 = 6;
+const OPERATOR_KIND_VERY_SPARSE: i32 = 7;
+const OPERATOR_KIND_SPARSE: i32 = 8;
+const OPERATOR_KIND_DENSE: i32 = 9;
+
+const operatorCachePointers = new StaticArray<usize>(OPERATOR_CACHE_SLOTS);
+const operatorCacheMasks = new StaticArray<i32>(OPERATOR_CACHE_SLOTS);
+const operatorCacheKinds = new StaticArray<i32>(OPERATOR_CACHE_SLOTS);
+
+function operatorCacheIndex(operator: usize): i32 {
+  return <i32> ((operator >> 4) & <usize> (OPERATOR_CACHE_SLOTS - 1));
+}
+
+function invalidateOperatorCache(operator: usize): void {
+  let index = operatorCacheIndex(operator);
+  if (unchecked(operatorCachePointers[index]) == operator) {
+    unchecked(operatorCachePointers[index] = 0);
+  }
+}
 
 function f32Offset(index: i32): usize {
   return <usize> index << 2;
@@ -287,6 +317,7 @@ function writeWeightCellUnchecked(
   col: i32,
   value: f64,
 ): void {
+  invalidateOperatorCache(weight);
   writeF64(weight, weightIndex(row, col), value);
 }
 
@@ -565,30 +596,50 @@ function applyDiagonalF32(
   input: usize,
   length: i32,
   out: usize,
-): void {
+  recordLoss: bool,
+): f64 {
   let diagonal = diagonalVectorF32(weight);
+  let loss = 0.0;
   let i = 0;
   let limit = simdLimit(length);
   for (; i < limit; i += CERTIFICATE_LANES) {
     let value = v128.load(input + f32Offset(i));
-    v128.store(out + f32Offset(i), f32x4.mul(value, diagonal));
+    let result = f32x4.mul(value, diagonal);
+    v128.store(out + f32Offset(i), result);
+    if (recordLoss) loss += f32x4Loss(value, result);
   }
   for (; i < length; i++) {
     let lane = i & 3;
+    let original = readF32(input, i);
+    let result =
+      original * <f32> readWeightCellUnchecked(weight, lane, lane);
     writeF32(
       out,
       i,
-      readF32(input, i) * <f32> readWeightCellUnchecked(weight, lane, lane),
+      result,
     );
+    if (recordLoss) {
+      let delta = <f64> result - <f64> original;
+      loss += delta * delta;
+    }
   }
+  return loss;
 }
 
-function applyCycleF32(input: usize, length: i32, out: usize): void {
+function applyCycleF32(
+  input: usize,
+  length: i32,
+  out: usize,
+  recordLoss: bool,
+): f64 {
+  let loss = 0.0;
   let i = 0;
   let limit = simdLimit(length);
   for (; i < limit; i += CERTIFICATE_LANES) {
     let value = v128.load(input + f32Offset(i));
-    v128.store(out + f32Offset(i), f32x4.shuffle(value, value, 1, 2, 3, 0));
+    let result = f32x4.shuffle(value, value, 1, 2, 3, 0);
+    v128.store(out + f32Offset(i), result);
+    if (recordLoss) loss += f32x4Loss(value, result);
   }
 
   if (i < length) {
@@ -600,15 +651,44 @@ function applyCycleF32(input: usize, length: i32, out: usize): void {
     if (i + 1 < length) writeF32(out, i + 1, c);
     if (i + 2 < length) writeF32(out, i + 2, d);
     if (i + 3 < length) writeF32(out, i + 3, a);
+    if (recordLoss) {
+      let ra: f32 = b;
+      let rb: f32 = c;
+      let rc: f32 = d;
+      let rd: f32 = a;
+      let da = <f64> ra - <f64> a;
+      loss += da * da;
+      if (i + 1 < length) {
+        let db = <f64> rb - <f64> b;
+        loss += db * db;
+      }
+      if (i + 2 < length) {
+        let dc = <f64> rc - <f64> c;
+        loss += dc * dc;
+      }
+      if (i + 3 < length) {
+        let dd = <f64> rd - <f64> d;
+        loss += dd * dd;
+      }
+    }
   }
+  return loss;
 }
 
-function applyReverseCycleF32(input: usize, length: i32, out: usize): void {
+function applyReverseCycleF32(
+  input: usize,
+  length: i32,
+  out: usize,
+  recordLoss: bool,
+): f64 {
+  let loss = 0.0;
   let i = 0;
   let limit = simdLimit(length);
   for (; i < limit; i += CERTIFICATE_LANES) {
     let value = v128.load(input + f32Offset(i));
-    v128.store(out + f32Offset(i), f32x4.shuffle(value, value, 3, 0, 1, 2));
+    let result = f32x4.shuffle(value, value, 3, 0, 1, 2);
+    v128.store(out + f32Offset(i), result);
+    if (recordLoss) loss += f32x4Loss(value, result);
   }
 
   if (i < length) {
@@ -620,7 +700,24 @@ function applyReverseCycleF32(input: usize, length: i32, out: usize): void {
     if (i + 1 < length) writeF32(out, i + 1, a);
     if (i + 2 < length) writeF32(out, i + 2, b);
     if (i + 3 < length) writeF32(out, i + 3, c);
+    if (recordLoss) {
+      let da = <f64> d - <f64> a;
+      loss += da * da;
+      if (i + 1 < length) {
+        let db = <f64> a - <f64> b;
+        loss += db * db;
+      }
+      if (i + 2 < length) {
+        let dc = <f64> b - <f64> c;
+        loss += dc * dc;
+      }
+      if (i + 3 < length) {
+        let dd = <f64> c - <f64> d;
+        loss += dd * dd;
+      }
+    }
   }
+  return loss;
 }
 
 function invariantF32x4(value: v128): v128 {
@@ -629,14 +726,20 @@ function invariantF32x4(value: v128): v128 {
   return f32x4.mul(total, f32x4.splat(<f32> ONE_FOURTH));
 }
 
-function applyInvariantF32(input: usize, length: i32, out: usize): void {
+function applyInvariantF32(
+  input: usize,
+  length: i32,
+  out: usize,
+  recordLoss: bool,
+): f64 {
+  let loss = 0.0;
   let i = 0;
   let limit = simdLimit(length);
   for (; i < limit; i += CERTIFICATE_LANES) {
-    v128.store(
-      out + f32Offset(i),
-      invariantF32x4(v128.load(input + f32Offset(i))),
-    );
+    let original = v128.load(input + f32Offset(i));
+    let result = invariantF32x4(original);
+    v128.store(out + f32Offset(i), result);
+    if (recordLoss) loss += f32x4Loss(original, result);
   }
 
   if (i < length) {
@@ -649,7 +752,24 @@ function applyInvariantF32(input: usize, length: i32, out: usize): void {
     if (i + 1 < length) writeF32(out, i + 1, value);
     if (i + 2 < length) writeF32(out, i + 2, value);
     if (i + 3 < length) writeF32(out, i + 3, value);
+    if (recordLoss) {
+      let da = <f64> value - <f64> a;
+      loss += da * da;
+      if (i + 1 < length) {
+        let db = <f64> value - <f64> b;
+        loss += db * db;
+      }
+      if (i + 2 < length) {
+        let dc = <f64> value - <f64> c;
+        loss += dc * dc;
+      }
+      if (i + 3 < length) {
+        let dd = <f64> value - <f64> d;
+        loss += dd * dd;
+      }
+    }
   }
+  return loss;
 }
 
 function applySparseF32(
@@ -740,6 +860,62 @@ function applyDenseF32(
   return loss;
 }
 
+function nonzeroCoefficientCount(zeroMask: i32): i32 {
+  let count = 0;
+  for (let bit = 0; bit < WEIGHT_CELLS; bit++) {
+    if ((zeroMask & (1 << bit)) == 0) count++;
+  }
+  return count;
+}
+
+function classifyOperator(weight: usize, zeroMask: i32): i32 {
+  if (zeroMask == SKIP_COEFF_MASK) return OPERATOR_KIND_ZERO;
+  if (isIdentityWeight(weight)) return OPERATOR_KIND_IDENTITY;
+  if (isInvariantWeight(weight)) return OPERATOR_KIND_INVARIANT;
+  if (isCycleWeight(weight)) return OPERATOR_KIND_CYCLE;
+  if (isReverseCycleWeight(weight)) return OPERATOR_KIND_REVERSE_CYCLE;
+  if (isDiagonalWeight(zeroMask)) return OPERATOR_KIND_DIAGONAL;
+  if (zeroMask == 0) return OPERATOR_KIND_DENSE;
+  if (nonzeroCoefficientCount(zeroMask) <= 4) {
+    return OPERATOR_KIND_VERY_SPARSE;
+  }
+  return OPERATOR_KIND_SPARSE;
+}
+
+function ensureOperatorClassification(weight: usize): i32 {
+  let index = operatorCacheIndex(weight);
+  if (unchecked(operatorCachePointers[index]) != weight) {
+    let zeroMask = operatorZeroMask(weight);
+    unchecked(operatorCachePointers[index] = weight);
+    unchecked(operatorCacheMasks[index] = zeroMask);
+    unchecked(operatorCacheKinds[index] = classifyOperator(weight, zeroMask));
+  }
+  return index;
+}
+
+function applyVerySparseF32(
+  weight: usize,
+  zeroMask: i32,
+  input: usize,
+  length: i32,
+  out: usize,
+  recordLoss: bool,
+): f64 {
+  let loss = 0.0;
+  for (let i = 0; i < length; i += CERTIFICATE_LANES) {
+    loss += applyScalarBlockF32(
+      weight,
+      zeroMask,
+      input,
+      i,
+      length,
+      out,
+      recordLoss,
+    );
+  }
+  return loss;
+}
+
 function washF32WithWeight(
   weight: usize,
   input: usize,
@@ -749,10 +925,13 @@ function washF32WithWeight(
 ): f64 {
   assert(length >= 0);
 
-  let skipMask = operatorSkipMask(weight);
-  let zeroMask = skipMask & SKIP_COEFF_MASK;
+  // The write-out path only consumes coefficient liveness. Avoid rebuilding
+  // public dead-input/dead-output masks for every application.
+  let classification = ensureOperatorClassification(weight);
+  let zeroMask = unchecked(operatorCacheMasks[classification]);
+  let kind = unchecked(operatorCacheKinds[classification]);
 
-  if (zeroMask == SKIP_COEFF_MASK) {
+  if (kind == OPERATOR_KIND_ZERO) {
     zeroF32(out, length);
     if (!recordLoss) return 0.0;
     let loss = 0.0;
@@ -763,30 +942,34 @@ function washF32WithWeight(
     return loss;
   }
 
-  if (!recordLoss) {
-    if (isIdentityWeight(weight)) {
-      if (input != out) copyF32(input, out, length);
-      return 0.0;
-    }
-    if (isInvariantWeight(weight)) {
-      applyInvariantF32(input, length, out);
-      return 0.0;
-    }
-    if (isCycleWeight(weight)) {
-      applyCycleF32(input, length, out);
-      return 0.0;
-    }
-    if (isReverseCycleWeight(weight)) {
-      applyReverseCycleF32(input, length, out);
-      return 0.0;
-    }
-    if (isDiagonalWeight(zeroMask)) {
-      applyDiagonalF32(weight, input, length, out);
-      return 0.0;
-    }
+  if (kind == OPERATOR_KIND_IDENTITY) {
+    if (input != out) copyF32(input, out, length);
+    return 0.0;
+  }
+  if (kind == OPERATOR_KIND_INVARIANT) {
+    return applyInvariantF32(input, length, out, recordLoss);
+  }
+  if (kind == OPERATOR_KIND_CYCLE) {
+    return applyCycleF32(input, length, out, recordLoss);
+  }
+  if (kind == OPERATOR_KIND_REVERSE_CYCLE) {
+    return applyReverseCycleF32(input, length, out, recordLoss);
+  }
+  if (kind == OPERATOR_KIND_DIAGONAL) {
+    return applyDiagonalF32(weight, input, length, out, recordLoss);
   }
 
-  if (zeroMask != 0) {
+  if (kind != OPERATOR_KIND_DENSE) {
+    if (kind == OPERATOR_KIND_VERY_SPARSE) {
+      return applyVerySparseF32(
+        weight,
+        zeroMask,
+        input,
+        length,
+        out,
+        recordLoss,
+      );
+    }
     return applySparseF32(weight, zeroMask, input, length, out, recordLoss);
   }
   return applyDenseF32(weight, input, length, out, recordLoss);
@@ -859,6 +1042,142 @@ function matmulF32(
         sum += readF32(left, leftBase + k) * readF32(right, k * cols + col);
       }
       writeF32(out, outBase + col, sum);
+    }
+  }
+}
+
+function matmulAffineF32(
+  left: usize,
+  right: usize,
+  out: usize,
+  rows: i32,
+  shared: i32,
+  cols: i32,
+  multiplier: f32,
+  addend: f32,
+): void {
+  let multiplierVector = f32x4.splat(multiplier);
+  let addendVector = f32x4.splat(addend);
+  for (let row = 0; row < rows; row++) {
+    let leftBase = row * shared;
+    let outBase = row * cols;
+    let col = 0;
+    let limit = simdLimit(cols);
+    for (; col < limit; col += 4) {
+      let acc = f32x4.splat(0.0);
+      for (let k = 0; k < shared; k++) {
+        let scalar = f32x4.splat(readF32(left, leftBase + k));
+        acc = f32x4.add(
+          acc,
+          f32x4.mul(
+            scalar,
+            v128.load(right + f32Offset(k * cols + col)),
+          ),
+        );
+      }
+      let value = f32x4.add(f32x4.mul(acc, multiplierVector), addendVector);
+      v128.store(out + f32Offset(outBase + col), value);
+    }
+    for (; col < cols; col++) {
+      let total: f32 = 0.0;
+      for (let k = 0; k < shared; k++) {
+        total += readF32(left, leftBase + k) *
+          readF32(right, k * cols + col);
+      }
+      writeF32(out, outBase + col, total * multiplier + addend);
+    }
+  }
+}
+
+function onesLeftMatmulF32(
+  right: usize,
+  out: usize,
+  rows: i32,
+  shared: i32,
+  cols: i32,
+): void {
+  for (let col = 0; col < cols; col++) {
+    let total: f32 = 0.0;
+    for (let k = 0; k < shared; k++) {
+      total += readF32(right, k * cols + col);
+    }
+    for (let row = 0; row < rows; row++) {
+      writeF32(out, row * cols + col, total);
+    }
+  }
+}
+
+function onesRightMatmulF32(
+  left: usize,
+  out: usize,
+  rows: i32,
+  shared: i32,
+  cols: i32,
+): void {
+  for (let row = 0; row < rows; row++) {
+    let total: f32 = 0.0;
+    for (let k = 0; k < shared; k++) {
+      total += readF32(left, row * shared + k);
+    }
+    let vector = f32x4.splat(total);
+    let outBase = row * cols;
+    let col = 0;
+    let limit = simdLimit(cols);
+    for (; col < limit; col += 4) {
+      v128.store(out + f32Offset(outBase + col), vector);
+    }
+    for (; col < cols; col++) writeF32(out, outBase + col, total);
+  }
+}
+
+function outerLeftMatmulF32(
+  outerLeft: usize,
+  outerRight: usize,
+  right: usize,
+  out: usize,
+  rows: i32,
+  shared: i32,
+  cols: i32,
+): void {
+  // (u v^T) B = u (v^T B). Each projection is computed once.
+  for (let col = 0; col < cols; col++) {
+    let projection: f32 = 0.0;
+    for (let k = 0; k < shared; k++) {
+      projection += readF32(outerRight, k) * readF32(right, k * cols + col);
+    }
+    for (let row = 0; row < rows; row++) {
+      writeF32(out, row * cols + col, readF32(outerLeft, row) * projection);
+    }
+  }
+}
+
+function outerRightMatmulF32(
+  left: usize,
+  outerLeft: usize,
+  outerRight: usize,
+  out: usize,
+  rows: i32,
+  shared: i32,
+  cols: i32,
+): void {
+  // A (u v^T) = (A u) v^T.
+  let limit = simdLimit(cols);
+  for (let row = 0; row < rows; row++) {
+    let projection: f32 = 0.0;
+    for (let k = 0; k < shared; k++) {
+      projection += readF32(left, row * shared + k) * readF32(outerLeft, k);
+    }
+    let scalar = f32x4.splat(projection);
+    let outBase = row * cols;
+    let col = 0;
+    for (; col < limit; col += 4) {
+      v128.store(
+        out + f32Offset(outBase + col),
+        f32x4.mul(scalar, v128.load(outerRight + f32Offset(col))),
+      );
+    }
+    for (; col < cols; col++) {
+      writeF32(out, outBase + col, projection * readF32(outerRight, col));
     }
   }
 }
@@ -955,6 +1274,12 @@ function applyFusedVectorOp(
       f32x4.splat(scalarB),
     );
   }
+  if (code == 16) {
+    return f32x4.add(
+      f32x4.mul(value, f32x4.splat(scalarA)),
+      f32x4.splat(scalarB),
+    );
+  }
   return value;
 }
 
@@ -980,6 +1305,7 @@ function applyFusedScalarOp(
   if (code == 13) return Mathf.floor(value);
   if (code == 14) return Mathf.ceil(value);
   if (code == 15) return Mathf.min(Mathf.max(value, scalarA), scalarB);
+  if (code == 16) return value * scalarA + scalarB;
   return value;
 }
 
@@ -1049,6 +1375,191 @@ export function fusedElementwise(
       writeF32(out, offset, value);
     }
   }
+}
+
+export function fusedElementwiseStats(
+  input: usize,
+  rows: i32,
+  cols: i32,
+  opcodes: usize,
+  scalarA: usize,
+  scalarB: usize,
+  operandPtrs: usize,
+  operandModes: usize,
+  opCount: i32,
+  statsMask: i32,
+  out: usize,
+): void {
+  let needSum = (statsMask & 1) != 0;
+  let needExtrema = (statsMask & 6) != 0;
+  let needNorm = (statsMask & 8) != 0;
+  let sum0 = f32x4.splat(0.0);
+  let sum1 = f32x4.splat(0.0);
+  let sum2 = f32x4.splat(0.0);
+  let sum3 = f32x4.splat(0.0);
+  let vectorIndex = 0;
+  let tailSum: f64 = 0.0;
+  let squared: f64 = 0.0;
+  let minimum: f32 = f32.NaN;
+  let maximum: f32 = f32.NaN;
+  let hasValue = false;
+  let colLimit = simdLimit(cols);
+
+  for (let r = 0; r < rows; r++) {
+    let rowBase = r * cols;
+    let c = 0;
+    for (; c < colLimit; c += 4) {
+      let offset = rowBase + c;
+      let value = v128.load(input + f32Offset(offset));
+      for (let op = 0; op < opCount; op++) {
+        let code = readI32(opcodes, op);
+        let other = f32x4.splat(0.0);
+        if (code <= 6) {
+          other = fusedOtherVector(
+            <usize> readI32(operandPtrs, op),
+            readI32(operandModes, op),
+            r,
+            c,
+            cols,
+            offset,
+          );
+        }
+        value = applyFusedVectorOp(
+          value,
+          code,
+          other,
+          readF32(scalarA, op),
+          readF32(scalarB, op),
+        );
+      }
+
+      if (needSum) {
+        if ((vectorIndex & 3) == 0) sum0 = f32x4.add(sum0, value);
+        else if ((vectorIndex & 3) == 1) sum1 = f32x4.add(sum1, value);
+        else if ((vectorIndex & 3) == 2) sum2 = f32x4.add(sum2, value);
+        else sum3 = f32x4.add(sum3, value);
+        vectorIndex++;
+      }
+
+      if (needExtrema || needNorm) {
+        let v0 = f32x4.extract_lane(value, 0);
+        let v1 = f32x4.extract_lane(value, 1);
+        let v2 = f32x4.extract_lane(value, 2);
+        let v3 = f32x4.extract_lane(value, 3);
+        if (needExtrema) {
+          if (!hasValue) {
+            minimum = v0;
+            maximum = v0;
+            hasValue = true;
+          }
+          minimum = Mathf.min(
+            Mathf.min(Mathf.min(minimum, v0), v1),
+            Mathf.min(v2, v3),
+          );
+          maximum = Mathf.max(
+            Mathf.max(Mathf.max(maximum, v0), v1),
+            Mathf.max(v2, v3),
+          );
+        }
+        if (needNorm) {
+          let d0 = <f64> v0;
+          let d1 = <f64> v1;
+          let d2 = <f64> v2;
+          let d3 = <f64> v3;
+          squared += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+        }
+      }
+    }
+
+    for (; c < cols; c++) {
+      let offset = rowBase + c;
+      let value = readF32(input, offset);
+      for (let op = 0; op < opCount; op++) {
+        let code = readI32(opcodes, op);
+        let other: f32 = 0.0;
+        if (code <= 6) {
+          other = fusedOtherScalar(
+            <usize> readI32(operandPtrs, op),
+            readI32(operandModes, op),
+            r,
+            c,
+            cols,
+            offset,
+          );
+        }
+        value = applyFusedScalarOp(
+          value,
+          code,
+          other,
+          readF32(scalarA, op),
+          readF32(scalarB, op),
+        );
+      }
+      if (needSum) tailSum += <f64> value;
+      if (needExtrema) {
+        if (!hasValue) {
+          minimum = value;
+          maximum = value;
+          hasValue = true;
+        } else {
+          minimum = Mathf.min(minimum, value);
+          maximum = Mathf.max(maximum, value);
+        }
+      }
+      if (needNorm) {
+        let wide = <f64> value;
+        squared += wide * wide;
+      }
+    }
+  }
+
+  let combined = f32x4.add(f32x4.add(sum0, sum1), f32x4.add(sum2, sum3));
+  writeF64(out, 0, <f64> horizontalSum4(combined) + tailSum);
+  writeF64(out, 1, <f64> minimum);
+  writeF64(out, 2, <f64> maximum);
+  writeF64(out, 3, Math.sqrt(squared));
+}
+
+export function fusedElementwiseTrace(
+  input: usize,
+  rows: i32,
+  cols: i32,
+  opcodes: usize,
+  scalarA: usize,
+  scalarB: usize,
+  operandPtrs: usize,
+  operandModes: usize,
+  opCount: i32,
+): f64 {
+  let total: f64 = 0.0;
+  let length = rows < cols ? rows : cols;
+  for (let i = 0; i < length; i++) {
+    let offset = i * cols + i;
+    let value = readF32(input, offset);
+    for (let op = 0; op < opCount; op++) {
+      let code = readI32(opcodes, op);
+      let other: f32 = 0.0;
+      if (code <= 6) {
+        other = fusedOtherScalar(
+          <usize> readI32(operandPtrs, op),
+          readI32(operandModes, op),
+          i,
+          i,
+          cols,
+          offset,
+        );
+      }
+      value = applyFusedScalarOp(
+        value,
+        code,
+        other,
+        readF32(scalarA, op),
+        readF32(scalarB, op),
+      );
+    }
+    total += <f64> value;
+  }
+  return total;
 }
 
 function dagLeafVector(
@@ -1217,6 +1728,228 @@ export function fusedElementwiseDag(
   }
 }
 
+export function fusedElementwiseDagStats(
+  rows: i32,
+  cols: i32,
+  program: usize,
+  trackCount: i32,
+  trackResults: usize,
+  resultTrack: i32,
+  statsMask: i32,
+  out: usize,
+): void {
+  let needSum = (statsMask & 1) != 0;
+  let needExtrema = (statsMask & 6) != 0;
+  let needNorm = (statsMask & 8) != 0;
+  let sum0 = f32x4.splat(0.0);
+  let sum1 = f32x4.splat(0.0);
+  let sum2 = f32x4.splat(0.0);
+  let sum3 = f32x4.splat(0.0);
+  let vectorIndex = 0;
+  let tailSum: f64 = 0.0;
+  let squared: f64 = 0.0;
+  let minimum: f32 = f32.NaN;
+  let maximum: f32 = f32.NaN;
+  let hasValue = false;
+  let colLimit = simdLimit(cols);
+
+  for (let row = 0; row < rows; row++) {
+    let rowBase = row * cols;
+    let col = 0;
+    for (; col < colLimit; col += 4) {
+      let offset = rowBase + col;
+      let entry = 0;
+      for (let track = 0; track < trackCount; track++) {
+        let value = dagReferenceVector(
+          readDagI32(program, entry, 1),
+          readDagI32(program, entry, 2),
+          readDagI32(program, entry, 3),
+          trackResults,
+          row,
+          col,
+          offset,
+        );
+        let opCount = readDagI32(program, entry, 4);
+        entry++;
+        for (let op = 0; op < opCount; op++, entry++) {
+          let code = readDagI32(program, entry, 0);
+          let other = f32x4.splat(0.0);
+          let scalarA: f32 = 0.0;
+          let scalarB: f32 = 0.0;
+          if (code <= 6) {
+            other = dagReferenceVector(
+              readDagI32(program, entry, 1),
+              readDagI32(program, entry, 2),
+              readDagI32(program, entry, 3),
+              trackResults,
+              row,
+              col,
+              offset,
+            );
+          } else {
+            scalarA = f32FromBits(readDagI32(program, entry, 3));
+            scalarB = f32FromBits(readDagI32(program, entry, 4));
+          }
+          value = applyFusedVectorOp(value, code, other, scalarA, scalarB);
+        }
+        v128.store(trackResults + dagTrackOffset(track), value);
+      }
+
+      let value = v128.load(trackResults + dagTrackOffset(resultTrack));
+      if (needSum) {
+        if ((vectorIndex & 3) == 0) sum0 = f32x4.add(sum0, value);
+        else if ((vectorIndex & 3) == 1) sum1 = f32x4.add(sum1, value);
+        else if ((vectorIndex & 3) == 2) sum2 = f32x4.add(sum2, value);
+        else sum3 = f32x4.add(sum3, value);
+        vectorIndex++;
+      }
+      if (needExtrema || needNorm) {
+        let v0 = f32x4.extract_lane(value, 0);
+        let v1 = f32x4.extract_lane(value, 1);
+        let v2 = f32x4.extract_lane(value, 2);
+        let v3 = f32x4.extract_lane(value, 3);
+        if (needExtrema) {
+          if (!hasValue) {
+            minimum = v0;
+            maximum = v0;
+            hasValue = true;
+          }
+          minimum = Mathf.min(
+            Mathf.min(Mathf.min(minimum, v0), v1),
+            Mathf.min(v2, v3),
+          );
+          maximum = Mathf.max(
+            Mathf.max(Mathf.max(maximum, v0), v1),
+            Mathf.max(v2, v3),
+          );
+        }
+        if (needNorm) {
+          let d0 = <f64> v0;
+          let d1 = <f64> v1;
+          let d2 = <f64> v2;
+          let d3 = <f64> v3;
+          squared += d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+        }
+      }
+    }
+
+    for (; col < cols; col++) {
+      let offset = rowBase + col;
+      let entry = 0;
+      for (let track = 0; track < trackCount; track++) {
+        let value = dagReferenceScalar(
+          readDagI32(program, entry, 1),
+          readDagI32(program, entry, 2),
+          readDagI32(program, entry, 3),
+          trackResults,
+          row,
+          col,
+          offset,
+        );
+        let opCount = readDagI32(program, entry, 4);
+        entry++;
+        for (let op = 0; op < opCount; op++, entry++) {
+          let code = readDagI32(program, entry, 0);
+          let other: f32 = 0.0;
+          let scalarA: f32 = 0.0;
+          let scalarB: f32 = 0.0;
+          if (code <= 6) {
+            other = dagReferenceScalar(
+              readDagI32(program, entry, 1),
+              readDagI32(program, entry, 2),
+              readDagI32(program, entry, 3),
+              trackResults,
+              row,
+              col,
+              offset,
+            );
+          } else {
+            scalarA = f32FromBits(readDagI32(program, entry, 3));
+            scalarB = f32FromBits(readDagI32(program, entry, 4));
+          }
+          value = applyFusedScalarOp(value, code, other, scalarA, scalarB);
+        }
+        writeF32(trackResults, track << 2, value);
+      }
+      let value = readF32(trackResults, resultTrack << 2);
+      if (needSum) tailSum += <f64> value;
+      if (needExtrema) {
+        if (!hasValue) {
+          minimum = value;
+          maximum = value;
+          hasValue = true;
+        } else {
+          minimum = Mathf.min(minimum, value);
+          maximum = Mathf.max(maximum, value);
+        }
+      }
+      if (needNorm) {
+        let wide = <f64> value;
+        squared += wide * wide;
+      }
+    }
+  }
+
+  let combined = f32x4.add(f32x4.add(sum0, sum1), f32x4.add(sum2, sum3));
+  writeF64(out, 0, <f64> horizontalSum4(combined) + tailSum);
+  writeF64(out, 1, <f64> minimum);
+  writeF64(out, 2, <f64> maximum);
+  writeF64(out, 3, Math.sqrt(squared));
+}
+
+export function fusedElementwiseDagTrace(
+  rows: i32,
+  cols: i32,
+  program: usize,
+  trackCount: i32,
+  trackResults: usize,
+  resultTrack: i32,
+): f64 {
+  let total: f64 = 0.0;
+  let length = rows < cols ? rows : cols;
+  for (let i = 0; i < length; i++) {
+    let offset = i * cols + i;
+    let entry = 0;
+    for (let track = 0; track < trackCount; track++) {
+      let value = dagReferenceScalar(
+        readDagI32(program, entry, 1),
+        readDagI32(program, entry, 2),
+        readDagI32(program, entry, 3),
+        trackResults,
+        i,
+        i,
+        offset,
+      );
+      let opCount = readDagI32(program, entry, 4);
+      entry++;
+      for (let op = 0; op < opCount; op++, entry++) {
+        let code = readDagI32(program, entry, 0);
+        let other: f32 = 0.0;
+        let scalarA: f32 = 0.0;
+        let scalarB: f32 = 0.0;
+        if (code <= 6) {
+          other = dagReferenceScalar(
+            readDagI32(program, entry, 1),
+            readDagI32(program, entry, 2),
+            readDagI32(program, entry, 3),
+            trackResults,
+            i,
+            i,
+            offset,
+          );
+        } else {
+          scalarA = f32FromBits(readDagI32(program, entry, 3));
+          scalarB = f32FromBits(readDagI32(program, entry, 4));
+        }
+        value = applyFusedScalarOp(value, code, other, scalarA, scalarB);
+      }
+      writeF32(trackResults, track << 2, value);
+    }
+    total += <f64> readF32(trackResults, resultTrack << 2);
+  }
+  return total;
+}
+
 export function transpose(
   input: usize,
   out: usize,
@@ -1276,6 +2009,30 @@ export function diagonalVectorLogDet(input: usize, size: i32): f64 {
     result += Math.log(value);
   }
   return result;
+}
+
+export function diagonalRank(
+  input: usize,
+  size: i32,
+  epsilon: f64,
+): i32 {
+  let rank = 0;
+  for (let i = 0; i < size; i++) {
+    if (Math.abs(<f64> readF32(input, i * size + i)) > epsilon) rank++;
+  }
+  return rank;
+}
+
+export function diagonalVectorRank(
+  input: usize,
+  size: i32,
+  epsilon: f64,
+): i32 {
+  let rank = 0;
+  for (let i = 0; i < size; i++) {
+    if (Math.abs(<f64> readF32(input, i)) > epsilon) rank++;
+  }
+  return rank;
 }
 
 export function invertDiagonal(input: usize, out: usize, size: i32): i32 {
@@ -1472,7 +2229,20 @@ export function matmulTN(
 ): void {
   for (let r = 0; r < colsA; r++) {
     let outBase = r * colsB;
-    for (let c = 0; c < colsB; c++) {
+    let c = 0;
+    let limit = simdLimit(colsB);
+    for (; c < limit; c += 4) {
+      let acc = f32x4.splat(0.0);
+      for (let k = 0; k < rowsA; k++) {
+        let scalar = f32x4.splat(readF32(a, k * colsA + r));
+        acc = f32x4.add(
+          acc,
+          f32x4.mul(scalar, v128.load(b + f32Offset(k * colsB + c))),
+        );
+      }
+      v128.store(out + f32Offset(outBase + c), acc);
+    }
+    for (; c < colsB; c++) {
       let total: f32 = 0.0;
       for (let k = 0; k < rowsA; k++) {
         total += readF32(a, k * colsA + r) * readF32(b, k * colsB + c);
@@ -1513,7 +2283,25 @@ export function matmulTT(
 ): void {
   for (let r = 0; r < colsA; r++) {
     let outBase = r * rowsB;
-    for (let c = 0; c < rowsB; c++) {
+    let c = 0;
+    let limit = simdLimit(rowsB);
+    for (; c < limit; c += 4) {
+      let acc = f32x4.splat(0.0);
+      for (let k = 0; k < rowsA; k++) {
+        let rightValues = makeF32x4(
+          readF32(b, c * rowsA + k),
+          readF32(b, (c + 1) * rowsA + k),
+          readF32(b, (c + 2) * rowsA + k),
+          readF32(b, (c + 3) * rowsA + k),
+        );
+        acc = f32x4.add(
+          acc,
+          f32x4.mul(f32x4.splat(readF32(a, k * colsA + r)), rightValues),
+        );
+      }
+      v128.store(out + f32Offset(outBase + c), acc);
+    }
+    for (; c < rowsB; c++) {
       let total: f32 = 0.0;
       for (let k = 0; k < rowsA; k++) {
         total += readF32(a, k * colsA + r) * readF32(b, c * rowsA + k);
@@ -1525,7 +2313,33 @@ export function matmulTT(
 
 export function gramTN(a: usize, out: usize, rows: i32, cols: i32): void {
   for (let r = 0; r < cols; r++) {
-    for (let c = r; c < cols; c++) {
+    let c = r;
+    for (; c + 3 < cols; c += 4) {
+      let acc = f32x4.splat(0.0);
+      for (let k = 0; k < rows; k++) {
+        let rowBase = k * cols;
+        acc = f32x4.add(
+          acc,
+          f32x4.mul(
+            f32x4.splat(readF32(a, rowBase + r)),
+            v128.load(a + f32Offset(rowBase + c)),
+          ),
+        );
+      }
+      let total0 = f32x4.extract_lane(acc, 0);
+      let total1 = f32x4.extract_lane(acc, 1);
+      let total2 = f32x4.extract_lane(acc, 2);
+      let total3 = f32x4.extract_lane(acc, 3);
+      writeF32(out, r * cols + c, total0);
+      writeF32(out, r * cols + c + 1, total1);
+      writeF32(out, r * cols + c + 2, total2);
+      writeF32(out, r * cols + c + 3, total3);
+      if (c != r) writeF32(out, c * cols + r, total0);
+      writeF32(out, (c + 1) * cols + r, total1);
+      writeF32(out, (c + 2) * cols + r, total2);
+      writeF32(out, (c + 3) * cols + r, total3);
+    }
+    for (; c < cols; c++) {
       let total: f32 = 0.0;
       for (let k = 0; k < rows; k++) {
         total += readF32(a, k * cols + r) * readF32(a, k * cols + c);
@@ -1570,6 +2384,26 @@ export function matvec(
 ): void {
   for (let r = 0; r < rows; r++) {
     writeF32(out, r, dotSimd(a + f32Offset(r * cols), vector, cols));
+  }
+}
+
+export function diagonalMatvec(
+  diagonal: usize,
+  vector: usize,
+  out: usize,
+  length: i32,
+): void {
+  let i = 0;
+  let limit = simdLimit(length);
+  for (; i < limit; i += 4) {
+    let offset = f32Offset(i);
+    v128.store(
+      out + offset,
+      f32x4.mul(v128.load(diagonal + offset), v128.load(vector + offset)),
+    );
+  }
+  for (; i < length; i++) {
+    writeF32(out, i, readF32(diagonal, i) * readF32(vector, i));
   }
 }
 
@@ -2213,7 +3047,7 @@ export function equalsApprox(
 }
 
 export function abiVersion(): i32 {
-  return 10;
+  return 11;
 }
 
 export function weightSystemAbiVersion(): i32 {
@@ -2245,6 +3079,7 @@ export function allocI32(length: i32): usize {
 }
 
 export function free(ptr: usize): void {
+  invalidateOperatorCache(ptr);
   heap.free(ptr);
 }
 
@@ -2357,6 +3192,53 @@ export function executeBatch(instructions: usize, count: i32): i32 {
         readBatchI32(instructions, instruction, 4),
         readBatchI32(instructions, instruction, 5),
       );
+    } else if (opcode == BATCH_OP_ONES_LEFT_MATMUL) {
+      onesLeftMatmulF32(
+        <usize> readBatchI32(instructions, instruction, 1),
+        <usize> readBatchI32(instructions, instruction, 2),
+        readBatchI32(instructions, instruction, 3),
+        readBatchI32(instructions, instruction, 4),
+        readBatchI32(instructions, instruction, 5),
+      );
+    } else if (opcode == BATCH_OP_ONES_RIGHT_MATMUL) {
+      onesRightMatmulF32(
+        <usize> readBatchI32(instructions, instruction, 1),
+        <usize> readBatchI32(instructions, instruction, 2),
+        readBatchI32(instructions, instruction, 3),
+        readBatchI32(instructions, instruction, 4),
+        readBatchI32(instructions, instruction, 5),
+      );
+    } else if (opcode == BATCH_OP_OUTER_LEFT_MATMUL) {
+      outerLeftMatmulF32(
+        <usize> readBatchI32(instructions, instruction, 1),
+        <usize> readBatchI32(instructions, instruction, 2),
+        <usize> readBatchI32(instructions, instruction, 3),
+        <usize> readBatchI32(instructions, instruction, 4),
+        readBatchI32(instructions, instruction, 5),
+        readBatchI32(instructions, instruction, 6),
+        readBatchI32(instructions, instruction, 7),
+      );
+    } else if (opcode == BATCH_OP_OUTER_RIGHT_MATMUL) {
+      outerRightMatmulF32(
+        <usize> readBatchI32(instructions, instruction, 1),
+        <usize> readBatchI32(instructions, instruction, 2),
+        <usize> readBatchI32(instructions, instruction, 3),
+        <usize> readBatchI32(instructions, instruction, 4),
+        readBatchI32(instructions, instruction, 5),
+        readBatchI32(instructions, instruction, 6),
+        readBatchI32(instructions, instruction, 7),
+      );
+    } else if (opcode == BATCH_OP_MATMUL_AFFINE) {
+      matmulAffineF32(
+        <usize> readBatchI32(instructions, instruction, 1),
+        <usize> readBatchI32(instructions, instruction, 2),
+        <usize> readBatchI32(instructions, instruction, 3),
+        readBatchI32(instructions, instruction, 4),
+        readBatchI32(instructions, instruction, 5),
+        readBatchI32(instructions, instruction, 6),
+        f32FromBits(readBatchI32(instructions, instruction, 7)),
+        f32FromBits(readBatchI32(instructions, instruction, 8)),
+      );
     } else {
       return -1;
     }
@@ -2447,6 +3329,7 @@ export function initWeightIdentity(weight: usize): void {
 }
 
 export function clearWeight(weight: usize): void {
+  invalidateOperatorCache(weight);
   for (let i = 0; i < WEIGHT_CELLS; i++) {
     writeF64(weight, i, 0.0);
   }
@@ -2505,7 +3388,8 @@ export function writeWeight(
 }
 
 export function operatorSkipMask(operator: usize): i32 {
-  let zeroMask = operatorZeroMask(operator);
+  let classification = ensureOperatorClassification(operator);
+  let zeroMask = unchecked(operatorCacheMasks[classification]);
   return zeroMask | operatorDeadInputMask(zeroMask) |
     operatorDeadOutputMask(zeroMask);
 }
@@ -2562,6 +3446,7 @@ export function rightComposeWeight(weight: usize, update: usize): void {
 }
 
 export function apiSetInvariantWeight(weight: usize): void {
+  invalidateOperatorCache(weight);
   for (let i = 0; i < WEIGHT_CELLS; i++) {
     writeF64(weight, i, ONE_FOURTH);
   }
@@ -2589,6 +3474,7 @@ export function apiScaleOutputLane(
   factor: f64,
 ): void {
   assertLane(lane);
+  invalidateOperatorCache(weight);
   let base = weight + f64Offset(lane * CERTIFICATE_LANES);
   let scale = f64x2.splat(factor);
   v128.store(base, f64x2.mul(v128.load(base), scale));
@@ -2606,6 +3492,7 @@ export function apiBlendOutputLanes(
 ): void {
   assertLane(targetLane);
   assertLane(sourceLane);
+  invalidateOperatorCache(weight);
 
   let target = weight + f64Offset(targetLane * CERTIFICATE_LANES);
   let source = weight + f64Offset(sourceLane * CERTIFICATE_LANES);
@@ -2634,6 +3521,7 @@ export function apiAddOutputLane(
 ): void {
   assertLane(targetLane);
   assertLane(sourceLane);
+  invalidateOperatorCache(weight);
 
   let target = weight + f64Offset(targetLane * CERTIFICATE_LANES);
   let source = weight + f64Offset(sourceLane * CERTIFICATE_LANES);
@@ -2651,6 +3539,7 @@ export function apiAddOutputLane(
 }
 
 export function normalizeWeightRows(weight: usize): void {
+  invalidateOperatorCache(weight);
   for (let row = 0; row < CERTIFICATE_LANES; row++) {
     let rowBase = weight + f64Offset(row * CERTIFICATE_LANES);
     let low = v128.load(rowBase);
@@ -2769,10 +3658,14 @@ export function compressF32ToCertificate(
 ): void {
   assert(length >= 0);
 
-  let sum0 = 0.0;
-  let sum1 = 0.0;
-  let sum2 = 0.0;
-  let sum3 = 0.0;
+  let mean0 = 0.0;
+  let mean1 = 0.0;
+  let mean2 = 0.0;
+  let mean3 = 0.0;
+  let loss0 = 0.0;
+  let loss1 = 0.0;
+  let loss2 = 0.0;
+  let loss3 = 0.0;
   let count0 = 0;
   let count1 = 0;
   let count2 = 0;
@@ -2782,41 +3675,30 @@ export function compressF32ToCertificate(
     let value = <f64> readF32(input, i);
     let lane = i & 3;
     if (lane == 0) {
-      sum0 += value;
       count0++;
+      let delta = value - mean0;
+      mean0 += delta / <f64> count0;
+      loss0 += delta * (value - mean0);
     } else if (lane == 1) {
-      sum1 += value;
       count1++;
+      let delta = value - mean1;
+      mean1 += delta / <f64> count1;
+      loss1 += delta * (value - mean1);
     } else if (lane == 2) {
-      sum2 += value;
       count2++;
+      let delta = value - mean2;
+      mean2 += delta / <f64> count2;
+      loss2 += delta * (value - mean2);
     } else {
-      sum3 += value;
       count3++;
+      let delta = value - mean3;
+      mean3 += delta / <f64> count3;
+      loss3 += delta * (value - mean3);
     }
   }
 
-  let mean0 = count0 > 0 ? sum0 / <f64> count0 : 0.0;
-  let mean1 = count1 > 0 ? sum1 / <f64> count1 : 0.0;
-  let mean2 = count2 > 0 ? sum2 / <f64> count2 : 0.0;
-  let mean3 = count3 > 0 ? sum3 / <f64> count3 : 0.0;
   writeCertificate(certificate, mean0, mean1, mean2, mean3);
-
-  let loss = 0.0;
-  for (let i = 0; i < length; i++) {
-    let lane = i & 3;
-    let mean = lane == 0
-      ? mean0
-      : lane == 1
-      ? mean1
-      : lane == 2
-      ? mean2
-      : mean3;
-    let delta = <f64> readF32(input, i) - mean;
-    loss += delta * delta;
-  }
-
-  pushLoss(lossState, lossState, loss);
+  pushLoss(lossState, lossState, loss0 + loss1 + loss2 + loss3);
 }
 
 export function applyWeightAndRecordLoss(

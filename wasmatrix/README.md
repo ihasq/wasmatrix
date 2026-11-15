@@ -163,6 +163,10 @@ Elementwise chains are fused into a single WASM pass where possible:
 A.add(B).subtract(0.25).hadamard(C).clamp(-2, 2).sqrt();
 ```
 
+Terminal reductions fuse into that pass and cache their scalar result, so a
+temporary result buffer is not required for `sum()`, `minValue()`,
+`maxValue()`, or `frobeniusNorm()`.
+
 Scalar chains fold into affine forms:
 
 ```js
@@ -176,6 +180,12 @@ A.add(rowVector);
 A.add(columnVector);
 A.hadamard(rowVector);
 ```
+
+Identity solves, diagonal rank and matrix-vector products, all-ones products,
+outer-product actions, and affine GEMM epilogues use structure-specific
+kernels. Batch materialization reuses intermediate slab regions after their
+last consumer, and structurally identical elementwise DAG branches are
+evaluated once.
 
 Linear algebra operations share factorization work:
 
@@ -196,6 +206,9 @@ aggressive identity folding can be enabled explicitly:
 ```js
 configure({ fastMath: true });
 ```
+
+Reassociation of outer-product matrix multiplications is one of the rewrites
+reserved for `fastMath`, because it changes `f32` rounding order.
 
 ## Memory Model
 
