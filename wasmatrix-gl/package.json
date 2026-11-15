@@ -24,7 +24,7 @@
     "test": "npm run build && node --test test/gl.test.ts"
   },
   "dependencies": {
-    "wasmatrix": "^0.0.8"
+    "wasmatrix": "^0.0.9"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",
