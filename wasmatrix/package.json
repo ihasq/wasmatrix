@@ -1,6 +1,6 @@
 {
   "name": "wasmatrix",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "SIMD-required WebAssembly matrix operations powered by AssemblyScript",
   "keywords": [
     "wasm",
