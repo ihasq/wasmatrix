@@ -1,5 +1,3 @@
-import Matrix from "wasmatrix";
-
 export type MutableArray = { length: number; [index: number]: number };
 export type Vec2 = MutableArray;
 export type Vec3 = MutableArray;
@@ -22,37 +20,6 @@ function createValues(length: number, values: ArrayLike<number>) {
   return write(new Float32Array(length), values);
 }
 
-function fromColumnMajorPacked(
-  a: ArrayLike<number>,
-  size: number,
-  stride: number,
-) {
-  const rowMajor = new Float32Array(size * size);
-  for (let row = 0; row < size; row++) {
-    for (let col = 0; col < size; col++) {
-      rowMajor[row * size + col] = a[col * stride + row] ?? 0;
-    }
-  }
-  return Matrix.from(size, size, rowMajor);
-}
-
-function writeColumnMajorPacked(
-  out: MutableArray,
-  data: ArrayLike<number>,
-  size: number,
-  stride: number,
-) {
-  for (let col = 0; col < size; col++) {
-    for (let row = 0; row < size; row++) {
-      out[col * stride + row] = data[row * size + col] ?? 0;
-    }
-    for (let row = size; row < stride; row++) {
-      out[col * stride + row] = 0;
-    }
-  }
-  return out;
-}
-
 function multiplyPacked(
   a: ArrayLike<number>,
   b: ArrayLike<number>,
@@ -61,21 +28,20 @@ function multiplyPacked(
   out?: MutableArray,
 ) {
   const target = dst(size * stride, out);
-  const left = fromColumnMajorPacked(a, size, stride);
-  const right = fromColumnMajorPacked(b, size, stride);
-  const product = left.matmul(right);
-  try {
-    return writeColumnMajorPacked(
-      target,
-      product.toFloat32ArrayView(),
-      size,
-      stride,
-    );
-  } finally {
-    product.dispose();
-    left.dispose();
-    right.dispose();
+  const left = target === a ? Float32Array.from(a) : a;
+  const right = target === b ? Float32Array.from(b) : b;
+  for (let col = 0; col < size; col++) {
+    for (let row = 0; row < size; row++) {
+      let total = 0;
+      for (let k = 0; k < size; k++) {
+        total += (left[k * stride + row] ?? 0) *
+          (right[col * stride + k] ?? 0);
+      }
+      target[col * stride + row] = total;
+    }
+    for (let row = size; row < stride; row++) target[col * stride + row] = 0;
   }
+  return target;
 }
 
 function transformPackedVector(
@@ -90,23 +56,34 @@ function transformPackedVector(
   out?: MutableArray,
 ) {
   const target = dst(outputLength, out);
-  const matrix = fromColumnMajorPacked(m, matrixSize, stride);
-  const vector = new Float32Array(matrixSize);
-  for (let i = 0; i < inputLength; i++) vector[i] = a[i] ?? 0;
-  if (homogeneous != null) vector[matrixSize - 1] = homogeneous;
-
-  const source = Matrix.from(matrixSize, 1, vector);
-  const result = matrix.matmul(source);
-  try {
-    const data = result.toFloat32ArrayView();
-    const w = divideByW ? data[matrixSize - 1] || 1 : 1;
-    for (let i = 0; i < outputLength; i++) target[i] = data[i] / w;
-    return target;
-  } finally {
-    result.dispose();
-    source.dispose();
-    matrix.dispose();
+  const x0 = a[0] ?? 0;
+  let x1 = inputLength > 1 ? a[1] ?? 0 : 0;
+  let x2 = inputLength > 2 ? a[2] ?? 0 : 0;
+  let x3 = inputLength > 3 ? a[3] ?? 0 : 0;
+  if (homogeneous != null) {
+    if (matrixSize === 2) x1 = homogeneous;
+    else if (matrixSize === 3) x2 = homogeneous;
+    else x3 = homogeneous;
   }
+  let r0 = 0;
+  let r1 = 0;
+  let r2 = 0;
+  let r3 = 0;
+  for (let col = 0; col < matrixSize; col++) {
+    const x = col === 0 ? x0 : col === 1 ? x1 : col === 2 ? x2 : x3;
+    const base = col * stride;
+    r0 += (m[base] ?? 0) * x;
+    r1 += (m[base + 1] ?? 0) * x;
+    if (matrixSize > 2) r2 += (m[base + 2] ?? 0) * x;
+    if (matrixSize > 3) r3 += (m[base + 3] ?? 0) * x;
+  }
+  const wValue = matrixSize === 2 ? r1 : matrixSize === 3 ? r2 : r3;
+  const w = divideByW ? wValue || 1 : 1;
+  if (outputLength > 0) target[0] = r0 / w;
+  if (outputLength > 1) target[1] = r1 / w;
+  if (outputLength > 2) target[2] = r2 / w;
+  if (outputLength > 3) target[3] = r3 / w;
+  return target;
 }
 
 function vectorCreate(length: number, values: number[]) {

@@ -1,5 +1,3 @@
-import Matrix from "wasmatrix";
-
 export type GLArray = Float32Array;
 export type Vec2 = Float32Array;
 export type Vec3 = Float32Array;
@@ -28,45 +26,25 @@ function copyArray(out: Float32Array, a: ArrayLike<number>) {
   return out;
 }
 
-function fromColumnMajor(a: ArrayLike<number>, size: number) {
-  const rowMajor = new Float32Array(size * size);
-  for (let row = 0; row < size; row++) {
-    for (let col = 0; col < size; col++) {
-      rowMajor[row * size + col] = a[col * size + row] ?? 0;
-    }
-  }
-  return Matrix.from(size, size, rowMajor);
-}
-
-function writeColumnMajor(
-  out: Float32Array,
-  data: ArrayLike<number>,
-  size: number,
-) {
-  for (let row = 0; row < size; row++) {
-    for (let col = 0; col < size; col++) {
-      out[col * size + row] = data[row * size + col] ?? 0;
-    }
-  }
-  return out;
-}
-
 function multiplyMatrix(
   out: Float32Array,
   a: ArrayLike<number>,
   b: ArrayLike<number>,
   size: number,
 ) {
-  const left = fromColumnMajor(a, size);
-  const right = fromColumnMajor(b, size);
-  const product = left.matmul(right);
-  try {
-    return writeColumnMajor(out, product.toFloat32ArrayView(), size);
-  } finally {
-    product.dispose();
-    left.dispose();
-    right.dispose();
+  const left = out === a ? Float32Array.from(a) : a;
+  const right = out === b ? Float32Array.from(b) : b;
+  for (let col = 0; col < size; col++) {
+    for (let row = 0; row < size; row++) {
+      let total = 0;
+      for (let k = 0; k < size; k++) {
+        total += (left[k * size + row] ?? 0) *
+          (right[col * size + k] ?? 0);
+      }
+      out[col * size + row] = total;
+    }
   }
+  return out;
 }
 
 function transformVector(
@@ -78,23 +56,34 @@ function transformVector(
   homogeneous: number | null,
   divideByW = false,
 ) {
-  const matrix = fromColumnMajor(m, matrixSize);
-  const vector = new Float32Array(matrixSize);
-  for (let i = 0; i < inputLength; i++) vector[i] = a[i] ?? 0;
-  if (homogeneous != null) vector[matrixSize - 1] = homogeneous;
-
-  const source = Matrix.from(matrixSize, 1, vector);
-  const result = matrix.matmul(source);
-  try {
-    const data = result.toFloat32ArrayView();
-    const w = divideByW ? data[matrixSize - 1] || 1 : 1;
-    for (let i = 0; i < out.length; i++) out[i] = data[i] / w;
-    return out;
-  } finally {
-    result.dispose();
-    source.dispose();
-    matrix.dispose();
+  const x0 = a[0] ?? 0;
+  let x1 = inputLength > 1 ? a[1] ?? 0 : 0;
+  let x2 = inputLength > 2 ? a[2] ?? 0 : 0;
+  let x3 = inputLength > 3 ? a[3] ?? 0 : 0;
+  if (homogeneous != null) {
+    if (matrixSize === 2) x1 = homogeneous;
+    else if (matrixSize === 3) x2 = homogeneous;
+    else x3 = homogeneous;
   }
+  let r0 = 0;
+  let r1 = 0;
+  let r2 = 0;
+  let r3 = 0;
+  for (let col = 0; col < matrixSize; col++) {
+    const x = col === 0 ? x0 : col === 1 ? x1 : col === 2 ? x2 : x3;
+    const base = col * matrixSize;
+    r0 += (m[base] ?? 0) * x;
+    r1 += (m[base + 1] ?? 0) * x;
+    if (matrixSize > 2) r2 += (m[base + 2] ?? 0) * x;
+    if (matrixSize > 3) r3 += (m[base + 3] ?? 0) * x;
+  }
+  const wValue = matrixSize === 2 ? r1 : matrixSize === 3 ? r2 : r3;
+  const w = divideByW ? wValue || 1 : 1;
+  if (out.length > 0) out[0] = r0 / w;
+  if (out.length > 1) out[1] = r1 / w;
+  if (out.length > 2) out[2] = r2 / w;
+  if (out.length > 3) out[3] = r3 / w;
+  return out;
 }
 
 function vectorLength(a: ArrayLike<number>, size: number) {

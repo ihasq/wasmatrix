@@ -1,6 +1,6 @@
 # @wasmatrix/gpu
 
-wgpu-matrix-compatible wrappers backed by WASMatrix operation templates.
+wgpu-matrix-compatible wrappers in the WASMatrix package family.
 
 The package follows wgpu-matrix's optional destination-last convention:
 
@@ -12,6 +12,6 @@ const position = vec3.transformMat4([4, 5, 6], model);
 ```
 
 `mat3` values are represented as 12-float WebGPU matrices, with each column
-padded to 4 floats. Matrix multiply and vector transform paths delegate through
-WASMatrix so the package stays a thin compatibility layer rather than a separate
-math core.
+padded to 4 floats. Matrix multiply and vector transform paths use direct packed
+kernels so fixed-size operations do not pay conversion or WebAssembly boundary
+costs.

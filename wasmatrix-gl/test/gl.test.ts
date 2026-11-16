@@ -50,7 +50,7 @@ test("mat4 multiply and vec3 transform keep glMatrix column-major semantics", ()
   );
 });
 
-test("mat3 multiply and vec2 transform use WASMatrix-backed templates", () => {
+test("mat3 multiply and vec2 transform preserve glMatrix semantics", () => {
   const translation = mat3.fromTranslation(mat3.create(), [5, 6]);
   const scaling = mat3.fromScaling(mat3.create(), [2, 3]);
   const transform = mat3.multiply(mat3.create(), translation, scaling);

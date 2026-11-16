@@ -611,8 +611,7 @@ function applyDiagonalF32(
   for (; i < length; i++) {
     let lane = i & 3;
     let original = readF32(input, i);
-    let result =
-      original * <f32> readWeightCellUnchecked(weight, lane, lane);
+    let result = original * <f32> readWeightCellUnchecked(weight, lane, lane);
     writeF32(
       out,
       i,
@@ -984,7 +983,79 @@ function matmulF32(
   cols: i32,
 ): void {
   assert(rows >= 0 && shared >= 0 && cols >= 0);
-  for (let row = 0; row < rows; row++) {
+  let row = 0;
+  // A two-row micro-kernel reuses every B vector load across adjacent output
+  // rows. This roughly halves B traffic while keeping the same accumulation
+  // order within each result cell.
+  for (; row + 1 < rows; row += 2) {
+    let leftBase0 = row * shared;
+    let leftBase1 = leftBase0 + shared;
+    let outBase0 = row * cols;
+    let outBase1 = outBase0 + cols;
+    let col = 0;
+    for (; col + 15 < cols; col += 16) {
+      let a00 = f32x4.splat(0.0), a01 = f32x4.splat(0.0);
+      let a02 = f32x4.splat(0.0), a03 = f32x4.splat(0.0);
+      let a10 = f32x4.splat(0.0), a11 = f32x4.splat(0.0);
+      let a12 = f32x4.splat(0.0), a13 = f32x4.splat(0.0);
+      for (let k = 0; k < shared; k++) {
+        let rightOffset = f32Offset(k * cols + col);
+        let b0 = v128.load(right + rightOffset);
+        let b1 = v128.load(right + rightOffset + 16);
+        let b2 = v128.load(right + rightOffset + 32);
+        let b3 = v128.load(right + rightOffset + 48);
+        let x0 = f32x4.splat(readF32(left, leftBase0 + k));
+        let x1 = f32x4.splat(readF32(left, leftBase1 + k));
+        a00 = f32x4.add(a00, f32x4.mul(x0, b0));
+        a01 = f32x4.add(a01, f32x4.mul(x0, b1));
+        a02 = f32x4.add(a02, f32x4.mul(x0, b2));
+        a03 = f32x4.add(a03, f32x4.mul(x0, b3));
+        a10 = f32x4.add(a10, f32x4.mul(x1, b0));
+        a11 = f32x4.add(a11, f32x4.mul(x1, b1));
+        a12 = f32x4.add(a12, f32x4.mul(x1, b2));
+        a13 = f32x4.add(a13, f32x4.mul(x1, b3));
+      }
+      let outOffset0 = f32Offset(outBase0 + col);
+      let outOffset1 = f32Offset(outBase1 + col);
+      v128.store(out + outOffset0, a00);
+      v128.store(out + outOffset0 + 16, a01);
+      v128.store(out + outOffset0 + 32, a02);
+      v128.store(out + outOffset0 + 48, a03);
+      v128.store(out + outOffset1, a10);
+      v128.store(out + outOffset1 + 16, a11);
+      v128.store(out + outOffset1 + 32, a12);
+      v128.store(out + outOffset1 + 48, a13);
+    }
+    for (; col + 3 < cols; col += 4) {
+      let acc0 = f32x4.splat(0.0);
+      let acc1 = f32x4.splat(0.0);
+      for (let k = 0; k < shared; k++) {
+        let values = v128.load(right + f32Offset(k * cols + col));
+        acc0 = f32x4.add(
+          acc0,
+          f32x4.mul(f32x4.splat(readF32(left, leftBase0 + k)), values),
+        );
+        acc1 = f32x4.add(
+          acc1,
+          f32x4.mul(f32x4.splat(readF32(left, leftBase1 + k)), values),
+        );
+      }
+      v128.store(out + f32Offset(outBase0 + col), acc0);
+      v128.store(out + f32Offset(outBase1 + col), acc1);
+    }
+    for (; col < cols; col++) {
+      let sum0: f32 = 0.0, sum1: f32 = 0.0;
+      for (let k = 0; k < shared; k++) {
+        let value = readF32(right, k * cols + col);
+        sum0 += readF32(left, leftBase0 + k) * value;
+        sum1 += readF32(left, leftBase1 + k) * value;
+      }
+      writeF32(out, outBase0 + col, sum0);
+      writeF32(out, outBase1 + col, sum1);
+    }
+  }
+
+  for (; row < rows; row++) {
     let leftBase = row * shared;
     let outBase = row * cols;
     let col = 0;
@@ -2362,6 +2433,28 @@ export function gramNT(a: usize, out: usize, rows: i32, cols: i32): void {
       if (c != r) writeF32(out, c * rows + r, total);
     }
   }
+}
+
+export function gramTraceTN(a: usize, rows: i32, cols: i32): f64 {
+  let trace: f64 = 0.0;
+  for (let col = 0; col < cols; col++) {
+    let diagonal: f32 = 0.0;
+    for (let row = 0; row < rows; row++) {
+      let value = readF32(a, row * cols + col);
+      diagonal += value * value;
+    }
+    trace += <f64> diagonal;
+  }
+  return trace;
+}
+
+export function gramTraceNT(a: usize, rows: i32, cols: i32): f64 {
+  let trace: f64 = 0.0;
+  for (let row = 0; row < rows; row++) {
+    let rowPtr = a + f32Offset(row * cols);
+    trace += <f64> dotSimd(rowPtr, rowPtr, cols);
+  }
+  return trace;
 }
 
 export function traceMatmul(a: usize, b: usize, rowsA: i32, colsA: i32): f64 {

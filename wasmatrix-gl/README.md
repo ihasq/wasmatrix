@@ -1,6 +1,7 @@
 # @wasmatrix/gl
 
-glMatrix-compatible wrappers backed by WASMatrix operation templates.
+glMatrix-compatible wrappers in the WASMatrix package family.
 
 The package keeps glMatrix's mutable `out` API and column-major matrix layout.
-Matrix multiplication and vector transforms are delegated to WASMatrix.
+Its fixed 2x2 through 4x4 operations use allocation-light direct kernels; this
+avoids row-major conversion and WebAssembly boundary overhead for tiny inputs.

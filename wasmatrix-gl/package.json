@@ -1,7 +1,7 @@
 {
   "name": "@wasmatrix/gl",
   "version": "0.0.1",
-  "description": "glMatrix-compatible wrappers backed by WASMatrix operation templates",
+  "description": "Allocation-light glMatrix-compatible fixed-size matrix kernels",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,9 +22,6 @@
     "fmt": "deno fmt src test package.json tsconfig.json deno.json",
     "lint": "deno lint src/*.ts test/*.ts",
     "test": "npm run build && node --test test/gl.test.ts"
-  },
-  "dependencies": {
-    "wasmatrix": "^0.0.9"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",
