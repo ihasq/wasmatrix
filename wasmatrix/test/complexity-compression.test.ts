@@ -106,3 +106,137 @@ test("fast low-rank products preserve their outer representation", () => {
     configure({ fastMath: false });
   }
 });
+
+test("deep lazy matrix products memoize partial reads", () => {
+  const size = 6;
+  const matrices = Array.from({ length: 9 }, (_, matrix) =>
+    Matrix.from(
+      size,
+      size,
+      Array.from(
+        { length: size * size },
+        (_, index) => ((index * 7 + matrix * 3) % 17 - 8) / 19,
+      ),
+    ));
+  let product = matrices[0];
+  for (let index = 1; index < matrices.length; index++) {
+    product = product.matmul(matrices[index]);
+  }
+
+  const expected = product.toFloat32Array();
+  const lazyMatrices = matrices.map((matrix) => matrix.clone());
+  let lazyProduct = lazyMatrices[0];
+  for (let index = 1; index < lazyMatrices.length; index++) {
+    lazyProduct = lazyProduct.matmul(lazyMatrices[index]);
+  }
+
+  almostEqual(lazyProduct.at(2, 4), expected[2 * size + 4], 1e-4);
+  assert.deepEqual(
+    Array.from(lazyProduct.row(2)),
+    Array.from(expected.slice(2 * size, 3 * size)),
+  );
+  assert.deepEqual(
+    Array.from(lazyProduct.column(4)),
+    Array.from({ length: size }, (_, row) => expected[row * size + 4]),
+  );
+  assert.deepEqual(
+    Array.from(lazyProduct.diagonal()),
+    Array.from({ length: size }, (_, index) => expected[index * size + index]),
+  );
+});
+
+test("outer extrema and fast matvec stay in compact form", () => {
+  const listenersKey = Symbol.for("wasmatrix.wasmCallListeners");
+  const calls: string[] = [];
+  const previous = (globalThis as any)[listenersKey];
+  (globalThis as any)[listenersKey] = new Set([
+    (name: string) => calls.push(name),
+  ]);
+  try {
+    const left = Matrix.from(4, 1, [-3, -1, 2, 5]);
+    const right = Matrix.from(3, 1, [-4, 0.5, 6]);
+    const outer = Matrix.outer(left, right);
+    assert.equal(outer.minValue(), -20);
+    assert.equal(outer.maxValue(), 30);
+    assert.equal(calls.includes("executeBatch"), false);
+
+    calls.length = 0;
+    assert.deepEqual(
+      Array.from(Matrix.ones(3, 4).scale(2).matvec([1, 2, 3, 4])),
+      [20, 20, 20],
+    );
+    assert.equal(calls.includes("matvec"), false);
+    assert.equal(calls.includes("executeBatch"), false);
+
+    calls.length = 0;
+    configure({ fastMath: true });
+    assert.deepEqual(
+      Array.from(outer.matvec([2, -1, 3])),
+      [-28.5, -9.5, 19, 47.5],
+    );
+    assert.equal(calls.includes("matvec"), false);
+    assert.equal(calls.includes("executeBatch"), false);
+  } finally {
+    configure({ fastMath: false });
+    if (previous === undefined) delete (globalThis as any)[listenersKey];
+    else (globalThis as any)[listenersKey] = previous;
+  }
+});
+
+test("wide and Gram rank avoid oversized derived factorizations", () => {
+  const listenersKey = Symbol.for("wasmatrix.wasmCallListeners");
+  const calls: string[] = [];
+  const previous = (globalThis as any)[listenersKey];
+  (globalThis as any)[listenersKey] = new Set([
+    (name: string) => calls.push(name),
+  ]);
+  try {
+    const wide = Matrix.from(2, 6, [
+      1,
+      0,
+      1,
+      2,
+      -1,
+      3,
+      0,
+      1,
+      1,
+      -1,
+      2,
+      4,
+    ]);
+    assert.equal(wide.rank(), 2);
+    assert.equal(calls.filter((name) => name === "qrFactor").length, 1);
+
+    calls.length = 0;
+    const source = Matrix.from(4, 2, [1, 0, 0, 1, 1, 1, 2, -1]);
+    assert.equal(source.transpose().matmul(source).rank(), 2);
+    assert.equal(calls.filter((name) => name === "qrFactor").length, 1);
+    assert.equal(calls.includes("gramTN"), false);
+  } finally {
+    if (previous === undefined) delete (globalThis as any)[listenersKey];
+    else (globalThis as any)[listenersKey] = previous;
+  }
+});
+
+test("repeated small solves reuse one LU factorization", () => {
+  const listenersKey = Symbol.for("wasmatrix.wasmCallListeners");
+  const calls: string[] = [];
+  const previous = (globalThis as any)[listenersKey];
+  (globalThis as any)[listenersKey] = new Set([
+    (name: string) => calls.push(name),
+  ]);
+  try {
+    const system = Matrix.from(3, 3, [4, 1, 2, 0, 5, 1, 2, 0, 6]);
+    const first = system.solve([7, 6, 8]);
+    const second = system.solve([1, 2, 3]);
+    assert.equal(first.toFloat32Array().length, 3);
+    assert.equal(second.toFloat32Array().length, 3);
+    assert.equal(calls.filter((name) => name === "luFactor").length, 1);
+    assert.equal(calls.filter((name) => name === "luSolve").length, 2);
+    assert.equal(calls.includes("executeBatch"), false);
+  } finally {
+    if (previous === undefined) delete (globalThis as any)[listenersKey];
+    else (globalThis as any)[listenersKey] = previous;
+  }
+});

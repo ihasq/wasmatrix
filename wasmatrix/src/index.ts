@@ -47,7 +47,6 @@ const MATMUL_TN = "TN";
 const MATMUL_NT = "NT";
 const MATMUL_TT = "TT";
 const SMALL_LINALG_DIRECT_MAX_SIZE = 2;
-const FACTOR_CACHE_SOLVE_MIN_SIZE = 24;
 const PACKED_MATMUL_MIN_COST = 262_144;
 const MIN_BUFFER_CACHE_BYTES = 64 * 1024;
 const BATCH_INSTRUCTION_I32_SLOTS = 10;
@@ -1425,24 +1424,25 @@ export class Matrix {
     return null;
   }
 
-  #flatValueAt(index) {
+  #flatValueAt(index, memo = null) {
     return this.#valueAtUnchecked(
       Math.floor(index / this.cols),
       index % this.cols,
+      memo,
     );
   }
 
-  static #applyScalarElementOp(value, op, row, col) {
+  static #applyScalarElementOp(value, op, row, col, memo = null) {
     let other = 0;
     if (op.other != null) {
       if (op.operandMode === OPERAND_ROW) {
-        other = op.other.#valueAtUnchecked(0, col);
+        other = op.other.#valueAtUnchecked(0, col, memo);
       } else if (op.operandMode === OPERAND_COLUMN) {
-        other = op.other.#valueAtUnchecked(row, 0);
+        other = op.other.#valueAtUnchecked(row, 0, memo);
         /* c8 ignore next 2 -- scalar mode only exists in compiled WASM DAGs */
       } else if (op.operandMode === OPERAND_SCALAR) {
-        other = op.other.#valueAtUnchecked(0, 0);
-      } else other = op.other.#valueAtUnchecked(row, col);
+        other = op.other.#valueAtUnchecked(0, 0, memo);
+      } else other = op.other.#valueAtUnchecked(row, col, memo);
     }
     let result = value;
     if (op.code === EW_ADD) result = value + other;
@@ -1467,7 +1467,23 @@ export class Matrix {
     return Math.fround(result);
   }
 
-  #valueAtUnchecked(row, col) {
+  #valueAtUnchecked(row, col, memo = null) {
+    if (memo == null) return this.#computeValueAtUnchecked(row, col, null);
+
+    let values = memo.get(this);
+    const index = row * this.cols + col;
+    if (values?.has(index)) return values.get(index);
+
+    const value = this.#computeValueAtUnchecked(row, col, memo);
+    if (values == null) {
+      values = new Map();
+      memo.set(this, values);
+    }
+    values.set(index, value);
+    return value;
+  }
+
+  #computeValueAtUnchecked(row, col, memo) {
     const local = this.#localValueAt(row, col);
     if (local != null) return local;
     if (this.#ptr) {
@@ -1476,27 +1492,27 @@ export class Matrix {
     if (this.#base != null) {
       return Math.fround(
         Math.fround(
-          this.#base.#valueAtUnchecked(row, col) * this.#affineScale,
+          this.#base.#valueAtUnchecked(row, col, memo) * this.#affineScale,
         ) +
           this.#affineBias,
       );
     }
     if (this.#transposeOf != null) {
-      return this.#transposeOf.#valueAtUnchecked(col, row);
+      return this.#transposeOf.#valueAtUnchecked(col, row, memo);
     }
     if (this.#diagonalOf != null) {
-      return row === col ? this.#diagonalOf.#flatValueAt(row) : 0;
+      return row === col ? this.#diagonalOf.#flatValueAt(row, memo) : 0;
     }
     if (this.#outerOf != null) {
       return Math.fround(
-        this.#outerOf.left.#flatValueAt(row) *
-          this.#outerOf.right.#flatValueAt(col),
+        this.#outerOf.left.#flatValueAt(row, memo) *
+          this.#outerOf.right.#flatValueAt(col, memo),
       );
     }
     if (this.#expr != null) {
-      let value = this.#expr.base.#valueAtUnchecked(row, col);
+      let value = this.#expr.base.#valueAtUnchecked(row, col, memo);
       for (const op of Matrix.#expressionOps(this.#expr)) {
-        value = Matrix.#applyScalarElementOp(value, op, row, col);
+        value = Matrix.#applyScalarElementOp(value, op, row, col, memo);
       }
       return value;
     }
@@ -1508,11 +1524,11 @@ export class Matrix {
       let total = Math.fround(0);
       for (let k = 0; k < shared; k++) {
         const a = variant === MATMUL_TN || variant === MATMUL_TT
-          ? left.#valueAtUnchecked(k, row)
-          : left.#valueAtUnchecked(row, k);
+          ? left.#valueAtUnchecked(k, row, memo)
+          : left.#valueAtUnchecked(row, k, memo);
         const b = variant === MATMUL_NT || variant === MATMUL_TT
-          ? right.#valueAtUnchecked(col, k)
-          : right.#valueAtUnchecked(k, col);
+          ? right.#valueAtUnchecked(col, k, memo)
+          : right.#valueAtUnchecked(k, col, memo);
         total = Math.fround(total + Math.fround(a * b));
       }
       return total;
@@ -1527,7 +1543,7 @@ export class Matrix {
 
   at(row, col) {
     this.#assertIndex(row, col);
-    return this.#valueAtUnchecked(row, col);
+    return this.#valueAtUnchecked(row, col, new Map());
   }
 
   set(row, col, value) {
@@ -1565,8 +1581,9 @@ export class Matrix {
     }
     if (!this.#ptr) {
       const out = new Float32Array(this.cols);
+      const memo = new Map();
       for (let col = 0; col < this.cols; col++) {
-        out[col] = this.#valueAtUnchecked(index, col);
+        out[col] = this.#valueAtUnchecked(index, col, memo);
       }
       return out;
     }
@@ -1597,8 +1614,9 @@ export class Matrix {
     }
     const out = new Float32Array(this.rows);
     if (!this.#ptr) {
+      const memo = new Map();
       for (let r = 0; r < this.rows; r++) {
-        out[r] = this.#valueAtUnchecked(r, index);
+        out[r] = this.#valueAtUnchecked(r, index, memo);
       }
       return out;
     }
@@ -1633,8 +1651,9 @@ export class Matrix {
 
     if (!this.#ptr) {
       const value = new Float32Array(length);
+      const memo = new Map();
       for (let i = 0; i < length; i++) {
-        value[i] = this.#valueAtUnchecked(i, i);
+        value[i] = this.#valueAtUnchecked(i, i, memo);
       }
       this.#diagonalCache = { version: this.#version, dependencyKey, value };
       return new Float32Array(value);
@@ -2092,6 +2111,52 @@ export class Matrix {
         const total = this.#runtime.call("sum", vec.ptr, vec.length);
         return new Float32Array(this.rows).fill(total);
       }
+      if (this.#structure === "constant") {
+        const constantPtr = this.#runtime.alloc(this.cols);
+        try {
+          this.#runtime.call(
+            "fill",
+            constantPtr,
+            this.cols,
+            this.#constantValue(),
+          );
+          const total = this.#runtime.call(
+            "dot",
+            constantPtr,
+            vec.ptr,
+            this.cols,
+          );
+          return new Float32Array(this.rows).fill(total);
+        } finally {
+          this.#runtime.free(constantPtr);
+        }
+      }
+      if (
+        optimizationOptions.fastMath && this.#ptr === 0 &&
+        this.#outerOf != null
+      ) {
+        const { left, right } = this.#outerOf;
+        const factor = this.#runtime.call(
+          "dot",
+          right.#materializedPtr(),
+          vec.ptr,
+          this.cols,
+        );
+        const ptr = this.#runtime.alloc(this.rows);
+        try {
+          this.#runtime.call(
+            "affine",
+            left.#materializedPtr(),
+            ptr,
+            this.rows,
+            factor,
+            0,
+          );
+          return this.#runtime.read(ptr, this.rows);
+        } finally {
+          this.#runtime.free(ptr);
+        }
+      }
 
       const diagonalSource = this.#diagonalVectorSource();
       const ptr = this.#runtime.alloc(this.rows);
@@ -2182,6 +2247,20 @@ export class Matrix {
     const constant = this.#constantValue();
     if (constant != null) return constant;
     if (this.#structure === "identity") return this.length === 1 ? 1 : 0;
+    if (this.#ptr === 0 && this.#outerOf != null) {
+      return this.#cachedReduction("min-outer", () => {
+        const leftMin = this.#outerOf.left.minValue();
+        const leftMax = this.#outerOf.left.maxValue();
+        const rightMin = this.#outerOf.right.minValue();
+        const rightMax = this.#outerOf.right.maxValue();
+        return Math.min(
+          Math.fround(leftMin * rightMin),
+          Math.fround(leftMin * rightMax),
+          Math.fround(leftMax * rightMin),
+          Math.fround(leftMax * rightMax),
+        );
+      });
+    }
     if (
       this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
       this.#affineBias === 0
@@ -2212,6 +2291,20 @@ export class Matrix {
     const constant = this.#constantValue();
     if (constant != null) return constant;
     if (this.#structure === "identity") return 1;
+    if (this.#ptr === 0 && this.#outerOf != null) {
+      return this.#cachedReduction("max-outer", () => {
+        const leftMin = this.#outerOf.left.minValue();
+        const leftMax = this.#outerOf.left.maxValue();
+        const rightMin = this.#outerOf.right.minValue();
+        const rightMax = this.#outerOf.right.maxValue();
+        return Math.max(
+          Math.fround(leftMin * rightMin),
+          Math.fround(leftMin * rightMax),
+          Math.fround(leftMax * rightMin),
+          Math.fround(leftMax * rightMax),
+        );
+      });
+    }
     if (
       this.#ptr === 0 && this.#base != null && this.#affineScale === 1 &&
       this.#affineBias === 0
@@ -2643,6 +2736,15 @@ export class Matrix {
           Math.min(this.rows, this.cols),
           epsilon,
         );
+    } else if (this.#ptr === 0 && this.#matmulOf?.gram != null) {
+      value = this.#matmulOf.left.rank(epsilon);
+    } else if (this.rows < this.cols) {
+      const transposed = this.transpose();
+      try {
+        value = transposed.rank(epsilon);
+      } finally {
+        transposed.dispose();
+      }
     } else {
       const qr = this.#qrFactor();
       value = this.#runtime.call(
@@ -3755,7 +3857,7 @@ export class Matrix {
       /* c8 ignore stop */
       if (
         left.#structure === "diagonal" ||
-        left.rows >= FACTOR_CACHE_SOLVE_MIN_SIZE
+        left.rows > SMALL_LINALG_DIRECT_MAX_SIZE
       ) {
         return false;
       }
